@@ -30,6 +30,34 @@ pub struct Config {
     site: SiteConfig,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            source: "content".into(),
+            output: "output".into(),
+            exclude: vec!["drafts".into()],
+            input_date_format: "yyyy MM dd".into(),
+            output_date_format: "MMM d yyyy".into(),
+            theme: "wells".into(),
+            header_image: "".into(),
+            posts_per_page: 10,
+            render_tags: false,
+            preview: PreviewConfig { port: 9090 },
+            social: SocialConfig {
+                twitter: Some("".into()),
+                github: Some("".into()),
+                mastodon: Some("".into()),
+            },
+            site: SiteConfig {
+                name: "New Rgent Site".into(),
+                tagline: Some("Your Catchy Tagline".into()),
+                author: "You!".into(),
+                base_url: "https://blog.example.com".into(),
+            }
+        }
+    }
+}
+
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct PreviewConfig {
     port: u16,
@@ -38,9 +66,9 @@ pub struct PreviewConfig {
 #[derive(Deserialize, Debug, Default, PartialEq, Eq)]
 #[serde(default)]
 pub struct SocialConfig {
-    twitter: String,
-    github: String,
-    mastodon: String,
+    twitter: Option<String>,
+    github: Option<String>,
+    mastodon: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Default, PartialEq, Eq)]
@@ -48,7 +76,7 @@ pub struct SiteConfig {
     name: String,
 
     #[serde(default)]
-    tagline: String,
+    tagline: Option<String>,
 
     author: String,
 
@@ -79,13 +107,13 @@ mod test {
             render_tags: false,
             preview: PreviewConfig { port: 9090 },
             social: SocialConfig {
-                twitter: "thepawandubey".into(),
-                github: "pawandubey".into(),
-                mastodon: "".into()
+                twitter: Some("thepawandubey".into()),
+                github: Some("pawandubey".into()),
+                mastodon: None,
             },
             site: SiteConfig {
                 name: "Not So Null".into(),
-                tagline: "Code += Play".into(),
+                tagline: Some("Code += Play".into()),
                 author: "Pawan Dubey".into(),
                 base_url: "https://blog.pawandubey.com".into()
             }

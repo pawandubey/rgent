@@ -14,5 +14,6 @@ assert_fs = "1.0.10"
 clap = { version = "4.0.32", features = ["derive"] }
 exitcode = "1.1.2"
 indoc = "1.0.8"
+predicates = "2.1.4"
 serde = { version = "1.0.151", features = ["derive"] }
 toml = "0.5.10"

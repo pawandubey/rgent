@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -11,9 +13,9 @@ pub struct Cli {
 pub enum Commands {
     /// Create a new site at the directory given by the name. Defaults to current directory.
     New {
-        /// Name of the directory to generate the site at.
+        /// Path to the directory to generate the site at. Will be created if not present.
         #[clap(value_parser)]
-        name: String,
+        path: PathBuf,
     },
     /// Generate HTML from the markdown raw content into the output directory.
     Publish {
