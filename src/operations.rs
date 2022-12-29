@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fmt::Debug,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 
@@ -13,9 +17,11 @@ pub struct Operations {}
 
 impl Operations {
     pub fn new(path: &PathBuf) -> Result<()> {
+        // TODO: Canonicalize path?
         fs::create_dir_all(path).context("Failed to create site directory")?;
 
-        fs::create_dir_all(path.join(CONTENT_AND_DRAFTS_DIR)).context("Failed to create content directory")?;
+        fs::create_dir_all(path.join(CONTENT_AND_DRAFTS_DIR))
+            .context("Failed to create content directory")?;
         fs::create_dir(path.join(OUTPUT_DIR)).context("Failed to create output directory")?;
         fs::create_dir(path.join(THEMES_DIR)).context("Failed to create themes directory")?;
 
@@ -33,7 +39,59 @@ impl Operations {
     }
 
     pub fn publish(_rebuild: bool) -> Result<()> {
+        let config_str = fs::read_to_string(CONFIG_FILE_NAME)
+            .context("Failed to read config file. Are we in the right directory?")?;
+        let config: Config =
+            toml::from_str(&config_str).context("Failed to parse config. Is it valid TOML?")?;
+
+        for entry in walkdir::WalkDir::new(&config.source) {
+            let dir_entry = entry.context("Failed to get result from walkdir entry")?;
+            let extension = dir_entry.path().extension().with_context(|| {
+                format!(
+                    "Failed to resolve extension for file: {:?}",
+                    dir_entry.file_name()
+                )
+            })?;
+            if dir_entry.file_type().is_file() && extension == "md" {
+                let markdown = fs::read_to_string(dir_entry.path())
+                    .with_context(|| format!("Failed to read file: {:?}", dir_entry.file_name()))?;
+
+                let mut options = pulldown_cmark::Options::empty();
+                options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
+                options.insert(pulldown_cmark::Options::ENABLE_SMART_PUNCTUATION);
+                options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
+                options.insert(pulldown_cmark::Options::ENABLE_TABLES);
+
+                let parser = pulldown_cmark::Parser::new_ext(&markdown, options);
+
+                let mut html = String::with_capacity(markdown.len());
+                pulldown_cmark::html::push_html(&mut html, parser);
+
+                let _output_path =
+                    Self::rebase_path(dir_entry.path(), &config.source, &config.output)?;
+            }
+        }
         Ok(())
+    }
+
+    /**
+    Takes the path for a file from the "source" directory, and returns a corresponding
+    path relative to the "output" directory for it.
+
+    E.g. if the source is /site/content, and output is at /site/output,
+    then /site/content/foo/bar.xyz will be returned as /site/output/foo/bar.xyz
+     */
+    fn rebase_path<P, F, T>(path: P, from: F, to: T) -> Result<PathBuf>
+    where
+        P: AsRef<Path> + Debug,
+        F: AsRef<Path> + Debug,
+        T: AsRef<Path>,
+    {
+        let relative_path = pathdiff::diff_paths(&path, &from)
+            .with_context(|| format!("Failed to diff path: {:?} from base: {:?}", path, from))?;
+        let output_path = to.as_ref().join(relative_path);
+
+        Ok(output_path)
     }
 }
 
@@ -70,6 +128,32 @@ mod test {
         let contents = fs::read_to_string(target_dir.child("rgent.toml"))
             .expect("Failed to read test config file");
         assert_eq!(new_config().trim(), contents.trim());
+    }
+
+    #[test]
+    fn test_relativize_path() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        let dir_path = target_dir.child("content/drafts").to_path_buf();
+        let from = target_dir.child("content").to_path_buf();
+        let to = target_dir.child("output").to_path_buf();
+
+        let relative_dir_path =
+            Operations::rebase_path(&dir_path, &from, &to).expect("Failed to get relative path");
+        assert_eq!(
+            target_dir.child("output/drafts").to_path_buf(),
+            relative_dir_path
+        );
+
+        let file_path = target_dir.child("content/some-file.md").to_path_buf();
+        let relative_file_path =
+            Operations::rebase_path(&file_path, &from, &to).expect("Failed to get relative path");
+        assert_eq!(
+            target_dir.child("output/some-file.md").to_path_buf(),
+            relative_file_path
+        );
     }
 
     fn new_config() -> &'static str {

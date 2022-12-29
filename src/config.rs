@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Config {
-    source: String,
-    output: String,
+    pub source: String,
+    pub output: String,
     exclude: Vec<String>,
 
     #[serde(rename = "inputdate")]
