@@ -35,12 +35,14 @@ const NEW_CONFIG: &str = indoc! {r#"
       baseurl = "https://blog.example.com"
 "#};
 
+const CONFIG_FILE_NAME: &str = "rgent.toml";
+
 pub struct Operations {}
 
 impl Operations {
     pub fn new(path: &PathBuf) -> Result<()> {
         fs::create_dir_all(path).context("Failed to create site directory")?;
-        let path_to_file = path.join("config.toml");
+        let path_to_file = path.join(CONFIG_FILE_NAME);
         fs::write(&path_to_file, NEW_CONFIG).context("Failed to write to config file")?;
 
         println!("Initialized new site config at {:?}", path_to_file);
@@ -71,10 +73,10 @@ mod test {
         Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
 
         target_dir
-            .child("config.toml")
+            .child("rgent.toml")
             .assert(predicate::path::exists());
 
-        let contents = fs::read_to_string(target_dir.child("config.toml"))
+        let contents = fs::read_to_string(target_dir.child("rgent.toml"))
             .expect("Failed to read test config file");
         assert_eq!(new_config().trim(), contents.trim());
     }
