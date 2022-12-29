@@ -1,39 +1,8 @@
 use std::{fs, path::PathBuf};
 
 use anyhow::{Context, Result};
-use indoc::indoc;
 
-const NEW_CONFIG: &str = indoc! {r#"
-    #parsing details
-    source = "content"
-    output = "output"
-    exclude = ["drafts"]
-
-    #styling
-    inputdate = "yyyy MM dd"
-    outputdate = "MMM d yyyy"
-    theme = "wells"
-    headerimage = ""
-    postsperindex = 10
-
-    #generate tags-based index?
-    rendertags = false
-
-    #preview
-    [preview]
-      port = 9090
-
-    #social media details
-    [social]
-      mastodon = "name@example.com"
-
-    #site details
-    [site]
-      name = "New Rgent Site"
-      tagline = "Your Catchy Tagline"
-      author = "You!"
-      baseurl = "https://blog.example.com"
-"#};
+use crate::config::Config;
 
 const CONFIG_FILE_NAME: &str = "rgent.toml";
 
@@ -43,7 +12,9 @@ impl Operations {
     pub fn new(path: &PathBuf) -> Result<()> {
         fs::create_dir_all(path).context("Failed to create site directory")?;
         let path_to_file = path.join(CONFIG_FILE_NAME);
-        fs::write(&path_to_file, NEW_CONFIG).context("Failed to write to config file")?;
+        let serialized_config = toml::to_string_pretty(&Config::default())
+            .context("Failed to serialize default config")?;
+        fs::write(&path_to_file, serialized_config).context("Failed to write to config file")?;
 
         println!("Initialized new site config at {:?}", path_to_file);
         Ok(())
@@ -83,35 +54,29 @@ mod test {
 
     fn new_config() -> &'static str {
         return indoc! {r#"
-          #parsing details
-          source = "content"
-          output = "output"
-          exclude = ["drafts"]
-
-          #styling
-          inputdate = "yyyy MM dd"
-          outputdate = "MMM d yyyy"
-          theme = "wells"
-          headerimage = ""
+          source = 'content'
+          output = 'output'
+          exclude = ['drafts']
+          inputdate = 'yyyy MM dd'
+          outputdate = 'MMM d yyyy'
+          theme = 'wells'
+          headerimage = ''
           postsperindex = 10
-
-          #generate tags-based index?
           rendertags = false
 
-          #preview
           [preview]
-            port = 9090
+          port = 9090
 
-          #social media details
           [social]
-            mastodon = "name@example.com"
+          twitter = ''
+          github = ''
+          mastodon = ''
 
-          #site details
           [site]
-            name = "New Rgent Site"
-            tagline = "Your Catchy Tagline"
-            author = "You!"
-            baseurl = "https://blog.example.com"
+          name = 'New Rgent Site'
+          tagline = 'Your Catchy Tagline'
+          author = 'You!'
+          baseurl = 'https://blog.example.com'
       "#};
     }
 }

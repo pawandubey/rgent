@@ -1,6 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Config {
     source: String,
     output: String,
@@ -58,12 +58,12 @@ impl Default for Config {
     }
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PreviewConfig {
     port: u16,
 }
 
-#[derive(Deserialize, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 #[serde(default)]
 pub struct SocialConfig {
     twitter: Option<String>,
@@ -71,7 +71,7 @@ pub struct SocialConfig {
     mastodon: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct SiteConfig {
     name: String,
 
