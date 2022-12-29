@@ -5,18 +5,26 @@ use anyhow::{Context, Result};
 use crate::config::Config;
 
 const CONFIG_FILE_NAME: &str = "rgent.toml";
+const CONTENT_AND_DRAFTS_DIR: &str = "content/drafts";
+const OUTPUT_DIR: &str = "output";
+const THEMES_DIR: &str = "themes";
 
 pub struct Operations {}
 
 impl Operations {
     pub fn new(path: &PathBuf) -> Result<()> {
         fs::create_dir_all(path).context("Failed to create site directory")?;
-        let path_to_file = path.join(CONFIG_FILE_NAME);
+
+        fs::create_dir_all(path.join(CONTENT_AND_DRAFTS_DIR)).context("Failed to create content directory")?;
+        fs::create_dir(path.join(OUTPUT_DIR)).context("Failed to create output directory")?;
+        fs::create_dir(path.join(THEMES_DIR)).context("Failed to create themes directory")?;
+
+        let path_to_config = path.join(CONFIG_FILE_NAME);
         let serialized_config = toml::to_string_pretty(&Config::default())
             .context("Failed to serialize default config")?;
-        fs::write(&path_to_file, serialized_config).context("Failed to write to config file")?;
+        fs::write(&path_to_config, serialized_config).context("Failed to write to config file")?;
 
-        println!("Initialized new site config at {:?}", path_to_file);
+        println!("Initialized new site config at {:?}", path_to_config);
         Ok(())
     }
 
@@ -45,7 +53,19 @@ mod test {
 
         target_dir
             .child("rgent.toml")
-            .assert(predicate::path::exists());
+            .assert(predicate::path::exists().and(predicate::path::is_file()));
+
+        target_dir
+            .child("content/drafts")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+
+        target_dir
+            .child("output")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+
+        target_dir
+            .child("themes/")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
 
         let contents = fs::read_to_string(target_dir.child("rgent.toml"))
             .expect("Failed to read test config file");
