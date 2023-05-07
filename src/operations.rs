@@ -44,6 +44,12 @@ impl Operations {
         let config: Config =
             toml::from_str(&config_str).context("Failed to parse config. Is it valid TOML?")?;
 
+        let mut md_options = pulldown_cmark::Options::empty();
+        md_options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
+        md_options.insert(pulldown_cmark::Options::ENABLE_SMART_PUNCTUATION);
+        md_options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
+        md_options.insert(pulldown_cmark::Options::ENABLE_TABLES);
+
         for entry in walkdir::WalkDir::new(&config.source) {
             let dir_entry = entry.context("Failed to get result from walkdir entry")?;
             let extension = dir_entry.path().extension().with_context(|| {
@@ -56,13 +62,7 @@ impl Operations {
                 let markdown = fs::read_to_string(dir_entry.path())
                     .with_context(|| format!("Failed to read file: {:?}", dir_entry.file_name()))?;
 
-                let mut options = pulldown_cmark::Options::empty();
-                options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
-                options.insert(pulldown_cmark::Options::ENABLE_SMART_PUNCTUATION);
-                options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
-                options.insert(pulldown_cmark::Options::ENABLE_TABLES);
-
-                let parser = pulldown_cmark::Parser::new_ext(&markdown, options);
+                let parser = pulldown_cmark::Parser::new_ext(&markdown, md_options);
 
                 let mut html = String::with_capacity(markdown.len());
                 pulldown_cmark::html::push_html(&mut html, parser);
