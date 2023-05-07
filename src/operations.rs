@@ -80,8 +80,10 @@ impl Operations {
 
     E.g. if the source is /site/content, and output is at /site/output,
     then /site/content/foo/bar.xyz will be returned as /site/output/foo/bar.xyz
+
+    If rewrite_ext is provided, it is used as the extension.
      */
-    fn rebase_path<P, F, T>(path: P, from: F, to: T) -> Result<PathBuf>
+    fn rebase_path<P, F, T>(path: P, from: F, to: T, rewrite_ext: Option<&str>) -> Result<PathBuf>
     where
         P: AsRef<Path> + Debug,
         F: AsRef<Path> + Debug,
@@ -91,7 +93,10 @@ impl Operations {
             .with_context(|| format!("Failed to diff path: {:?} from base: {:?}", path, from))?;
         let output_path = to.as_ref().join(relative_path);
 
-        Ok(output_path)
+        match rewrite_ext {
+            Some(ext) => Ok(output_path.with_extension(ext)),
+            None => Ok(output_path),
+        }
     }
 }
 
@@ -140,19 +145,35 @@ mod test {
         let from = target_dir.child("content").to_path_buf();
         let to = target_dir.child("output").to_path_buf();
 
-        let relative_dir_path =
-            Operations::rebase_path(&dir_path, &from, &to).expect("Failed to get relative path");
+        let relative_dir_path = Operations::rebase_path(&dir_path, &from, &to, None)
+            .expect("Failed to get relative path");
         assert_eq!(
             target_dir.child("output/drafts").to_path_buf(),
             relative_dir_path
         );
 
+        let relative_dir_path_ext = Operations::rebase_path(&dir_path, &from, &to, Some("ext"))
+            .expect("Failed to get relative path");
+        assert_eq!(
+            target_dir.child("output/drafts.ext").to_path_buf(),
+            relative_dir_path_ext
+        );
+
         let file_path = target_dir.child("content/some-file.md").to_path_buf();
-        let relative_file_path =
-            Operations::rebase_path(&file_path, &from, &to).expect("Failed to get relative path");
+        let relative_file_path = Operations::rebase_path(&file_path, &from, &to, None)
+            .expect("Failed to get relative path");
         assert_eq!(
             target_dir.child("output/some-file.md").to_path_buf(),
             relative_file_path
+        );
+
+        let file_path_ext = target_dir.child("content/some-file.md").to_path_buf();
+        let relative_file_path_ext =
+            Operations::rebase_path(&file_path_ext, &from, &to, Some("ext"))
+                .expect("Failed to get relative path");
+        assert_eq!(
+            target_dir.child("output/some-file.ext").to_path_buf(),
+            relative_file_path_ext
         );
     }
 
