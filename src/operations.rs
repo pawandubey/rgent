@@ -52,12 +52,8 @@ impl Operations {
 
         for entry in walkdir::WalkDir::new(&config.source) {
             let dir_entry = entry.context("Failed to get result from walkdir entry")?;
-            let extension = dir_entry.path().extension().with_context(|| {
-                format!(
-                    "Failed to resolve extension for file: {:?}",
-                    dir_entry.file_name()
-                )
-            })?;
+            let extension = dir_entry.path().extension().unwrap_or_default();
+
             if dir_entry.file_type().is_file() && extension == "md" {
                 let markdown = fs::read_to_string(dir_entry.path())
                     .with_context(|| format!("Failed to read file: {:?}", dir_entry.file_name()))?;
@@ -67,8 +63,19 @@ impl Operations {
                 let mut html = String::with_capacity(markdown.len());
                 pulldown_cmark::html::push_html(&mut html, parser);
 
-                let _output_path =
-                    Self::rebase_path(dir_entry.path(), &config.source, &config.output)?;
+                let output_path = Self::rebase_path(
+                    dir_entry.path(),
+                    &config.source,
+                    &config.output,
+                    Some("html"),
+                )?;
+
+                fs::write(&output_path, html).with_context(|| {
+                    format!("Failed to write generated HTML for: {:?}", dir_entry.path())
+                })?;
+
+                // TODO: Also write posts to dir/index.html
+                // TODO: Copy over all assets
             }
         }
         Ok(())
@@ -175,6 +182,34 @@ mod test {
             target_dir.child("output/some-file.ext").to_path_buf(),
             relative_file_path_ext
         );
+    }
+
+    #[test]
+    fn test_publish_markdown() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        // let dir_path = target_dir.child("content/drafts").to_path_buf();
+        // let from = target_dir.child("content").to_path_buf();
+        // let to = target_dir.child("output").to_path_buf();
+
+        let markdown = target_dir.child("content/test.md");
+        fs::write(&markdown, "# Hello world").expect("Failed to write test markdown");
+
+        let old_pwd = std::env::current_dir().expect("Failed to get PWD");
+        std::env::set_current_dir(&target_dir).expect("Failed to set PWD");
+
+        Operations::publish(false).expect("Failed publish operation");
+        std::env::set_current_dir(&old_pwd).expect("Failed to set PWD");
+
+        target_dir
+            .child("output/test.html")
+            .assert(predicate::path::exists().and(predicate::path::is_file()));
+
+        let contents =
+            fs::read_to_string(target_dir.child("output/test.html")).expect("Failed to read file");
+        assert_eq!("<h1>Hello world</h1>", contents.trim());
     }
 
     fn new_config() -> &'static str {
