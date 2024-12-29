@@ -63,17 +63,47 @@ impl Operations {
                 let mut html = String::with_capacity(markdown.len());
                 pulldown_cmark::html::push_html(&mut html, parser);
 
+                let dir_file_stem = dir_entry.path().file_stem().with_context(|| {
+                    format!("Failed to get file stem from path: {:?}", dir_entry.path())
+                })?;
+
+                let indexed_output_file_path = dir_entry
+                    .path()
+                    .with_file_name(dir_file_stem)
+                    .join("index.html");
                 let output_path = Self::rebase_path(
-                    dir_entry.path(),
+                    &indexed_output_file_path,
                     &config.source,
                     &config.output,
                     Some("html"),
                 )?;
 
-                fs::write(&output_path, html).with_context(|| {
-                    format!("Failed to write generated HTML for: {:?}", dir_entry.path())
+                let indexed_base_dir = &output_path.parent().with_context(|| {
+                    format!(
+                        "Failed to extract base directory from path: {:?}",
+                        output_path
+                    )
                 })?;
 
+                fs::create_dir_all(indexed_base_dir).with_context(|| {
+                    format!(
+                        "Failed to create index base directory: {:?}",
+                        indexed_output_file_path.parent()
+                    )
+                })?;
+
+                fs::write(&output_path, html).with_context(|| {
+                    format!(
+                        "Failed to write generated HTML for: {:?} to {:?}",
+                        dir_entry.path(),
+                        output_path
+                    )
+                })?;
+
+                /*
+
+                After, we will take the slug from the page/post frontmatter.
+                */
                 // TODO: Also write posts to dir/index.html
                 // TODO: Copy over all assets
             }
@@ -203,13 +233,28 @@ mod test {
         Operations::publish(false).expect("Failed publish operation");
         std::env::set_current_dir(&old_pwd).expect("Failed to set PWD");
 
+        print_dir(&target_dir).expect("Error during iterating over target dir");
+
         target_dir
-            .child("output/test.html")
+            .child("output/test/index.html")
             .assert(predicate::path::exists().and(predicate::path::is_file()));
 
-        let contents =
-            fs::read_to_string(target_dir.child("output/test.html")).expect("Failed to read file");
+        let contents = fs::read_to_string(target_dir.child("output/test/index.html"))
+            .expect("Failed to read file");
         assert_eq!("<h1>Hello world</h1>", contents.trim());
+    }
+
+    fn print_dir<T>(root: T) -> Result<(), walkdir::Error>
+    where
+        T: AsRef<Path>,
+    {
+        use walkdir::WalkDir;
+
+        for entry in WalkDir::new(root) {
+            println!("{}", entry?.path().display());
+        }
+
+        Ok(())
     }
 
     fn new_config() -> &'static str {

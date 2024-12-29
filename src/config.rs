@@ -53,7 +53,7 @@ impl Default for Config {
                 tagline: Some("Your Catchy Tagline".into()),
                 author: "You!".into(),
                 base_url: "https://blog.example.com".into(),
-            }
+            },
         }
     }
 }
@@ -86,14 +86,14 @@ pub struct SiteConfig {
 
 #[cfg(test)]
 mod test {
-    use indoc::indoc;
     use crate::config::*;
+    use indoc::indoc;
 
     #[test]
     fn test_config_can_be_parsed() {
         let test_config = test_config();
 
-        let config: Config = toml::from_str(&test_config).expect("Should deserialize");
+        let config: Config = toml::from_str(test_config).expect("Should deserialize");
 
         let expected_config = Config {
             source: "content".into(),
@@ -115,8 +115,8 @@ mod test {
                 name: "Not So Null".into(),
                 tagline: Some("Code += Play".into()),
                 author: "Pawan Dubey".into(),
-                base_url: "https://blog.pawandubey.com".into()
-            }
+                base_url: "https://blog.pawandubey.com".into(),
+            },
         };
 
         assert_eq!(expected_config, config)
