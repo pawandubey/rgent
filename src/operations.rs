@@ -93,7 +93,12 @@ impl Operations {
 
                 let slug = match &frontmatter.slug {
                     Some(s) => s,
-                    None => &frontmatter.title.trim().to_lowercase().split_whitespace().join("-")
+                    None => &frontmatter
+                        .title
+                        .trim()
+                        .to_lowercase()
+                        .split_whitespace()
+                        .join("-"),
                 };
 
                 dbg!(&frontmatter);
@@ -210,84 +215,84 @@ mod test {
             .expect("Failed to read test config file");
         assert_eq!(new_config().trim(), contents.trim());
     }
-    
+
     #[test]
     fn test_scaffold_with_relative_path_components() {
         let temp_dir = assert_fs::TempDir::new().unwrap();
-        
+
         // Create a directory structure with a nested directory
         let nested_dir = temp_dir.child("nested");
         fs::create_dir(&nested_dir).expect("Failed to create nested directory");
-        
+
         // Create a path with relative components (parent directory reference)
         let path_with_relative = nested_dir.join("..").join("rgent_relative_test");
         Operations::new(&path_with_relative).expect("Failed new operation with relative path");
-        
+
         // The site should be created at the resolved path (same level as nested, not inside it)
         let expected_dir = temp_dir.child("rgent_relative_test");
-        expected_dir
-            .assert(predicate::path::exists().and(predicate::path::is_dir()));
-            
+        expected_dir.assert(predicate::path::exists().and(predicate::path::is_dir()));
+
         // Verify all the site directories were created at the correct location
         expected_dir
             .child("rgent.toml")
             .assert(predicate::path::exists().and(predicate::path::is_file()));
-            
+
         expected_dir
             .child("content/drafts")
             .assert(predicate::path::exists().and(predicate::path::is_dir()));
-            
+
         expected_dir
             .child("output")
             .assert(predicate::path::exists().and(predicate::path::is_dir()));
-            
+
         expected_dir
             .child("themes")
             .assert(predicate::path::exists().and(predicate::path::is_dir()));
-            
+
         // The config file content should be correct
         let contents = fs::read_to_string(expected_dir.child("rgent.toml"))
             .expect("Failed to read test config file");
         assert_eq!(new_config().trim(), contents.trim());
     }
-    
+
     #[test]
     fn test_scaffold_with_symlink_path() {
         // Skip this test on platforms where symlinks aren't well supported
         if cfg!(windows) {
             return;
         }
-        
+
         let temp_dir = assert_fs::TempDir::new().unwrap();
-        
+
         // Create a real directory for the site
         let real_dir = temp_dir.child("real_site_dir");
         fs::create_dir(&real_dir).expect("Failed to create real directory");
-        
+
         // Create a symlink to that directory
         let symlink_dir = temp_dir.child("symlink_to_site");
         std::os::unix::fs::symlink(&real_dir, &symlink_dir).expect("Failed to create symlink");
-        
+
         // Initialize the site through the symlink
-        Operations::new(&symlink_dir.to_path_buf()).expect("Failed new operation with symlink path");
-        
+        Operations::new(&symlink_dir.to_path_buf())
+            .expect("Failed new operation with symlink path");
+
         // Check if the site was created in the real directory
         real_dir
             .child("rgent.toml")
             .assert(predicate::path::exists().and(predicate::path::is_file()));
-            
+
         real_dir
             .child("content/drafts")
             .assert(predicate::path::exists().and(predicate::path::is_dir()));
-            
+
         real_dir
             .child("output")
             .assert(predicate::path::exists().and(predicate::path::is_dir()));
-            
+
         real_dir
             .child("themes")
             .assert(predicate::path::exists().and(predicate::path::is_dir()));
-            
+
         // Also verify the site is accessible through the symlink
         symlink_dir
             .child("rgent.toml")
