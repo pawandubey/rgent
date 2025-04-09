@@ -8,6 +8,8 @@ use anyhow::{Context, Result};
 
 use crate::config::Config;
 
+use itertools::Itertools;
+
 const CONFIG_FILE_NAME: &str = "rgent.toml";
 const CONTENT_AND_DRAFTS_DIR: &str = "content/drafts";
 const OUTPUT_DIR: &str = "output";
@@ -15,9 +17,22 @@ const THEMES_DIR: &str = "themes";
 
 pub struct Operations {}
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct Frontmatter {
+    title: String,
+    author: String,
+    layout: Option<String>,
+    date: String,
+    tags: Vec<String>,
+    slug: Option<String>,
+}
+
 impl Operations {
     pub fn new(path: &PathBuf) -> Result<()> {
-        // TODO: Canonicalize path?
+        // TODO: Canonicalize path for more consistent path representation in logs?
+        // Current behavior works correctly with symlinks and relative paths.
         fs::create_dir_all(path).context("Failed to create site directory")?;
 
         fs::create_dir_all(path.join(CONTENT_AND_DRAFTS_DIR))
@@ -38,7 +53,7 @@ impl Operations {
         Ok(())
     }
 
-    pub fn publish(_rebuild: bool) -> Result<()> {
+    pub fn publish(_rebuild: bool) -> Result<(), anyhow::Error> {
         let config_str = fs::read_to_string(CONFIG_FILE_NAME)
             .context("Failed to read config file. Are we in the right directory?")?;
         let config: Config =
@@ -55,21 +70,42 @@ impl Operations {
             let extension = dir_entry.path().extension().unwrap_or_default();
 
             if dir_entry.file_type().is_file() && extension == "md" {
-                let markdown = fs::read_to_string(dir_entry.path())
+                let raw_content = fs::read_to_string(dir_entry.path())
                     .with_context(|| format!("Failed to read file: {:?}", dir_entry.file_name()))?;
 
-                let parser = pulldown_cmark::Parser::new_ext(&markdown, md_options);
+                let (header, markdown) = raw_content.split_once("#####").with_context(|| {
+                    format!(
+                        "Failed to parse frontmatter and content from file {:?}",
+                        dir_entry.path()
+                    )
+                })?;
+
+                let frontmatter: Frontmatter = toml::from_str(header).with_context(|| {
+                    format!("Failed to parse frontmatter for {:?}", dir_entry.path())
+                })?;
+
+                let content_parser = pulldown_cmark::Parser::new_ext(&markdown, md_options);
 
                 let mut html = String::with_capacity(markdown.len());
-                pulldown_cmark::html::push_html(&mut html, parser);
+                pulldown_cmark::html::push_html(&mut html, content_parser);
 
-                let dir_file_stem = dir_entry.path().file_stem().with_context(|| {
-                    format!("Failed to get file stem from path: {:?}", dir_entry.path())
-                })?;
+                // let title = &frontmatter.title;
+
+                let slug = match &frontmatter.slug {
+                    Some(s) => s,
+                    None => &frontmatter.title.trim().to_lowercase().split_whitespace().join("-")
+                };
+
+                dbg!(&frontmatter);
+                dbg!(&slug);
+
+                // let dir_file_stem = dir_entry.path().file_stem().with_context(|| {
+                //     format!("Failed to get file stem from path: {:?}", dir_entry.path())
+                // })?;
 
                 let indexed_output_file_path = dir_entry
                     .path()
-                    .with_file_name(dir_file_stem)
+                    .with_file_name(slug.trim())
                     .join("index.html");
                 let output_path = Self::rebase_path(
                     &indexed_output_file_path,
@@ -84,6 +120,9 @@ impl Operations {
                         output_path
                     )
                 })?;
+
+                dbg!(&indexed_output_file_path);
+                dbg!(&indexed_base_dir);
 
                 fs::create_dir_all(indexed_base_dir).with_context(|| {
                     format!(
@@ -171,6 +210,89 @@ mod test {
             .expect("Failed to read test config file");
         assert_eq!(new_config().trim(), contents.trim());
     }
+    
+    #[test]
+    fn test_scaffold_with_relative_path_components() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        
+        // Create a directory structure with a nested directory
+        let nested_dir = temp_dir.child("nested");
+        fs::create_dir(&nested_dir).expect("Failed to create nested directory");
+        
+        // Create a path with relative components (parent directory reference)
+        let path_with_relative = nested_dir.join("..").join("rgent_relative_test");
+        Operations::new(&path_with_relative).expect("Failed new operation with relative path");
+        
+        // The site should be created at the resolved path (same level as nested, not inside it)
+        let expected_dir = temp_dir.child("rgent_relative_test");
+        expected_dir
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+            
+        // Verify all the site directories were created at the correct location
+        expected_dir
+            .child("rgent.toml")
+            .assert(predicate::path::exists().and(predicate::path::is_file()));
+            
+        expected_dir
+            .child("content/drafts")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+            
+        expected_dir
+            .child("output")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+            
+        expected_dir
+            .child("themes")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+            
+        // The config file content should be correct
+        let contents = fs::read_to_string(expected_dir.child("rgent.toml"))
+            .expect("Failed to read test config file");
+        assert_eq!(new_config().trim(), contents.trim());
+    }
+    
+    #[test]
+    fn test_scaffold_with_symlink_path() {
+        // Skip this test on platforms where symlinks aren't well supported
+        if cfg!(windows) {
+            return;
+        }
+        
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        
+        // Create a real directory for the site
+        let real_dir = temp_dir.child("real_site_dir");
+        fs::create_dir(&real_dir).expect("Failed to create real directory");
+        
+        // Create a symlink to that directory
+        let symlink_dir = temp_dir.child("symlink_to_site");
+        std::os::unix::fs::symlink(&real_dir, &symlink_dir).expect("Failed to create symlink");
+        
+        // Initialize the site through the symlink
+        Operations::new(&symlink_dir.to_path_buf()).expect("Failed new operation with symlink path");
+        
+        // Check if the site was created in the real directory
+        real_dir
+            .child("rgent.toml")
+            .assert(predicate::path::exists().and(predicate::path::is_file()));
+            
+        real_dir
+            .child("content/drafts")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+            
+        real_dir
+            .child("output")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+            
+        real_dir
+            .child("themes")
+            .assert(predicate::path::exists().and(predicate::path::is_dir()));
+            
+        // Also verify the site is accessible through the symlink
+        symlink_dir
+            .child("rgent.toml")
+            .assert(predicate::path::exists().and(predicate::path::is_file()));
+    }
 
     #[test]
     fn test_relativize_path() {
@@ -215,7 +337,7 @@ mod test {
     }
 
     #[test]
-    fn test_publish_markdown() {
+    fn test_publish_markdown_without_slug() {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let target_dir = temp_dir.child("rgent_test");
         Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
@@ -225,7 +347,18 @@ mod test {
         // let to = target_dir.child("output").to_path_buf();
 
         let markdown = target_dir.child("content/test.md");
-        fs::write(&markdown, "# Hello world").expect("Failed to write test markdown");
+
+        let content = r#"
+title = 'Test post'
+author = 'Pawan Dubey'
+date = '2024-12-28'
+tags = []
+
+#####
+
+# Hello world"#;
+
+        fs::write(&markdown, content).expect("Failed to write test markdown");
 
         let old_pwd = std::env::current_dir().expect("Failed to get PWD");
         std::env::set_current_dir(&target_dir).expect("Failed to set PWD");
@@ -236,12 +369,57 @@ mod test {
         print_dir(&target_dir).expect("Error during iterating over target dir");
 
         target_dir
-            .child("output/test/index.html")
+            .child("output/test-post/index.html")
             .assert(predicate::path::exists().and(predicate::path::is_file()));
 
-        let contents = fs::read_to_string(target_dir.child("output/test/index.html"))
+        let contents = fs::read_to_string(target_dir.child("output/test-post/index.html"))
             .expect("Failed to read file");
         assert_eq!("<h1>Hello world</h1>", contents.trim());
+        temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    #[test]
+    fn test_publish_markdown_with_slug() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        // let dir_path = target_dir.child("content/drafts").to_path_buf();
+        // let from = target_dir.child("content").to_path_buf();
+        // let to = target_dir.child("output").to_path_buf();
+
+        let markdown = target_dir.child("content/test.md");
+
+        let content = r#"
+title = 'Test post'
+author = 'Pawan Dubey'
+date = '2024-12-28'
+tags = []
+slug = 'custom-test-post'
+
+#####
+
+# Hello world"#;
+
+        fs::write(&markdown, content).expect("Failed to write test markdown");
+
+        let old_pwd = std::env::current_dir().expect("Failed to get PWD");
+        std::env::set_current_dir(&target_dir).expect("Failed to set PWD");
+
+        Operations::publish(false).expect("Failed publish operation");
+        std::env::set_current_dir(&old_pwd).expect("Failed to set PWD");
+
+        print_dir(&target_dir).expect("Error during iterating over target dir");
+
+        target_dir
+            .child("output/custom-test-post/index.html")
+            .assert(predicate::path::exists().and(predicate::path::is_file()));
+
+        let contents = fs::read_to_string(target_dir.child("output/custom-test-post/index.html"))
+            .expect("Failed to read file");
+        assert_eq!("<h1>Hello world</h1>", contents.trim());
+
+        temp_dir.close().expect("Failed to delete temp directory")
     }
 
     fn print_dir<T>(root: T) -> Result<(), walkdir::Error>
