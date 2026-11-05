@@ -107,13 +107,37 @@ impl ContentAssets {
         Ok(copied)
     }
 
+    pub fn resolve_image(&self, destination: &str, source: &Path) -> String {
+        match self.lookup(destination, source) {
+            Resolution::Asset(url) => url,
+            Resolution::Unchanged => destination.to_string(),
+            Resolution::Missing(path) => {
+                Self::warn_missing_image(path, source);
+                destination.to_string()
+            }
+        }
+    }
+
     fn resolve<'a>(&self, destination: CowStr<'a>, source: &Path, warn: bool) -> CowStr<'a> {
+        match self.lookup(&destination, source) {
+            Resolution::Asset(url) => CowStr::from(url),
+            Resolution::Unchanged => destination,
+            Resolution::Missing(path) => {
+                if warn {
+                    Self::warn_missing_image(path, source);
+                }
+                destination
+            }
+        }
+    }
+
+    fn lookup<'d>(&self, destination: &'d str, source: &Path) -> Resolution<'d> {
         if destination.is_empty()
             || destination.starts_with('/')
             || destination.starts_with('#')
-            || has_scheme(&destination)
+            || has_scheme(destination)
         {
-            return destination;
+            return Resolution::Unchanged;
         }
 
         let split_at = destination.find(['?', '#']).unwrap_or(destination.len());
@@ -121,18 +145,23 @@ impl ContentAssets {
         let target = normalize(&source.parent().unwrap_or(Path::new("")).join(path_part));
 
         match self.assets.get(&target) {
-            Some(asset) => CowStr::from(format!("{}{}", asset.url, suffix)),
-            None => {
-                if warn {
-                    eprintln!(
-                        "Warning: image {:?} in {:?} was not found in the content directory",
-                        path_part, source
-                    );
-                }
-                destination
-            }
+            Some(asset) => Resolution::Asset(format!("{}{}", asset.url, suffix)),
+            None => Resolution::Missing(path_part),
         }
     }
+
+    fn warn_missing_image(path: &str, source: &Path) {
+        eprintln!(
+            "Warning: image {:?} in {:?} was not found in the content directory",
+            path, source
+        );
+    }
+}
+
+enum Resolution<'d> {
+    Asset(String),
+    Unchanged,
+    Missing(&'d str),
 }
 
 fn has_scheme(destination: &str) -> bool {
@@ -241,6 +270,28 @@ mod test {
                 html
             );
         }
+    }
+
+    #[test]
+    fn test_resolve_image() {
+        let source = Path::new("/site/content");
+        let assets = assets(source, &["posts/cover.jpg"]);
+        let post = source.join("posts/hello.md");
+
+        assert_eq!("/posts/cover.jpg", assets.resolve_image("cover.jpg", &post));
+        assert_eq!(
+            "/posts/cover.jpg",
+            assets.resolve_image("./cover.jpg", &post)
+        );
+        assert_eq!(
+            "/static/x.png",
+            assets.resolve_image("/static/x.png", &post)
+        );
+        assert_eq!(
+            "https://cdn.example.com/x.png",
+            assets.resolve_image("https://cdn.example.com/x.png", &post)
+        );
+        assert_eq!("missing.jpg", assets.resolve_image("missing.jpg", &post));
     }
 
     #[test]

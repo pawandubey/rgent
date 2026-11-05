@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/assets/style.css">
   <link rel="stylesheet" href="/assets/highlight.css">
   <link rel="alternate" type="application/rss+xml" title="{{config.site.name}}" href="/feed.xml">
+  {{#if post.image_permalink}}<meta property="og:image" content="{{post.image_permalink}}">{{/if}}
 </head>
 <body>
   <header class="site-header">

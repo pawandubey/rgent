@@ -454,6 +454,43 @@ mod test {
             html
         );
 
+        let featured = json!({
+            "config": {"site": {"name": "My Site"}},
+            "post": {
+                "title": "Hello",
+                "image": "/notes/cover.svg",
+                "image_permalink": "https://example.com/notes/cover.svg",
+                "image_alt": "A cover",
+            },
+            "index": {
+                "posts": [{"title": "Hello", "url": "/hello/", "image": "/notes/cover.svg", "image_alt": "A cover"}],
+                "current_page": 1,
+                "total_pages": 1,
+            },
+        });
+        for layout in ["post", "page", "index"] {
+            let html = theme.render(layout, &featured).expect("Failed to render");
+            assert!(
+                html.contains(
+                    "<img class=\"featured-image\" src=\"/notes/cover.svg\" alt=\"A cover\">"
+                ),
+                "{}: {}",
+                layout,
+                html
+            );
+        }
+        let html = theme.render("post", &featured).unwrap();
+        assert!(
+            html.contains(
+                "<meta property=\"og:image\" content=\"https://example.com/notes/cover.svg\">"
+            ),
+            "{}",
+            html
+        );
+        let html = theme.render("post", &data).unwrap();
+        assert!(!html.contains("featured-image"), "{}", html);
+        assert!(!html.contains("og:image"), "{}", html);
+
         theme_dir
             .child("assets/style.css")
             .assert(predicate::path::is_file());

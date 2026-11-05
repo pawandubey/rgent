@@ -1,6 +1,7 @@
 {{> header}}
   <main>
     <article class="page">
+      {{#if post.image}}<img class="featured-image" src="{{post.image}}" alt="{{post.image_alt}}">{{/if}}
       <h1 class="page-title">{{post.title}}</h1>
       <div class="page-content">
         {{{post.content}}}

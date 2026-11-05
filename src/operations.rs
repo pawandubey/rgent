@@ -47,6 +47,8 @@ pub struct Frontmatter {
     #[serde(default)]
     tags: Vec<String>,
     slug: Option<String>,
+    image: Option<String>,
+    image_alt: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +113,9 @@ struct Entry {
     date_iso: Option<String>,
     tags: Vec<String>,
     tag_links: Vec<TagLink>,
+    image: Option<String>,
+    image_permalink: Option<String>,
+    image_alt: Option<String>,
     slug: String,
     url: String,
     permalink: String,
@@ -315,6 +320,11 @@ impl Operations {
                     ),
                 };
 
+                let image = frontmatter
+                    .image
+                    .as_deref()
+                    .map(|image| content_assets.resolve_image(image, dir_entry.path()));
+
                 let entry = Entry {
                     kind,
                     title: frontmatter.title.clone(),
@@ -331,6 +341,11 @@ impl Operations {
                         .map(|tag| TagLink::new(tag))
                         .collect(),
                     slug: slug.trim().to_string(),
+                    image_permalink: image
+                        .as_deref()
+                        .map(|image| Self::absolute_url(&config.site.base_url, image)),
+                    image,
+                    image_alt: frontmatter.image_alt.clone(),
                     permalink: format!("{}{}", config.site.base_url.trim_end_matches('/'), url),
                     url,
                     content: html,
@@ -601,6 +616,14 @@ impl Operations {
         fs::write(&output_path, xml)
             .with_context(|| format!("Failed to write feed to {:?}", output_path))?;
         Ok(output_path)
+    }
+
+    fn absolute_url(base_url: &str, url: &str) -> String {
+        if url.starts_with('/') && !url.starts_with("//") {
+            format!("{}{}", base_url.trim_end_matches('/'), url)
+        } else {
+            url.to_string()
+        }
     }
 
     fn url_for_dir(dir: &Path, output_dir: &Path) -> Result<String> {
@@ -1436,6 +1459,98 @@ slug = 'custom-test-post'
             assert!(message.contains(generated), "{}", message);
             temp_dir.close().unwrap();
         }
+    }
+
+    #[test]
+    fn test_publish_resolves_featured_images() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        fs::write(
+            target_dir.child("themes/wells/post.html"),
+            "{{post.image}}|{{post.image_permalink}}|{{post.image_alt}}",
+        )
+        .unwrap();
+        fs::write(
+            target_dir.child("themes/wells/index.html"),
+            "{{#each index.posts}}{{title}}={{image}},{{/each}}",
+        )
+        .unwrap();
+
+        fs::create_dir_all(target_dir.child("content/notes")).unwrap();
+        fs::write(target_dir.child("content/notes/cover.svg"), "<svg/>").unwrap();
+        write_content(
+            &target_dir,
+            "notes/relative.md",
+            "title = 'Relative'\ndate = '2024 01 04'\nimage = 'cover.svg'\nimage_alt = 'A cover'",
+        );
+        write_content(
+            &target_dir,
+            "absolute.md",
+            "title = 'Absolute'\ndate = '2024 01 03'\nimage = '/notes/cover.svg'",
+        );
+        write_content(
+            &target_dir,
+            "external.md",
+            "title = 'External'\ndate = '2024 01 02'\nimage = 'https://cdn.example.com/x.png'",
+        );
+        write_content(
+            &target_dir,
+            "missing.md",
+            "title = 'Missing'\ndate = '2024 01 01'\nimage = 'nope.png'",
+        );
+        write_content(
+            &target_dir,
+            "plain.md",
+            "title = 'Plain'\ndate = '2023 12 31'",
+        );
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        assert_eq!(
+            "/notes/cover.svg|https://blog.example.com/notes/cover.svg|A cover",
+            read_output(&target_dir, "notes/relative/index.html")
+        );
+        assert_eq!(
+            "/notes/cover.svg|https://blog.example.com/notes/cover.svg|",
+            read_output(&target_dir, "absolute/index.html")
+        );
+        assert_eq!(
+            "https://cdn.example.com/x.png|https://cdn.example.com/x.png|",
+            read_output(&target_dir, "external/index.html")
+        );
+        assert_eq!(
+            "nope.png|nope.png|",
+            read_output(&target_dir, "missing/index.html")
+        );
+        assert_eq!("||", read_output(&target_dir, "plain/index.html"));
+        assert_eq!(
+            "Relative=/notes/cover.svg,Absolute=/notes/cover.svg,External=https://cdn.example.com/x.png,Missing=nope.png,Plain=,",
+            read_output(&target_dir, "index.html")
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_absolute_url() {
+        let base = "https://blog.example.com/";
+
+        assert_eq!(
+            "https://blog.example.com/a/b.png",
+            Operations::absolute_url(base, "/a/b.png")
+        );
+        assert_eq!(
+            "https://cdn.example.com/x.png",
+            Operations::absolute_url(base, "https://cdn.example.com/x.png")
+        );
+        assert_eq!(
+            "//cdn.example.com/x.png",
+            Operations::absolute_url(base, "//cdn.example.com/x.png")
+        );
+        assert_eq!(
+            "relative.png",
+            Operations::absolute_url(base, "relative.png")
+        );
     }
 
     #[test]

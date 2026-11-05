@@ -66,3 +66,11 @@ pre.giallo {
   font-size: 0.9rem;
   line-height: 1.5;
 }
+
+.featured-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 1rem;
+  border-radius: 6px;
+}
