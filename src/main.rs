@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod dates;
 mod excerpt;
+mod feed;
 mod highlight;
 mod operations;
 mod pagination;

@@ -80,6 +80,10 @@ impl Theme {
         self.highlight.as_ref()
     }
 
+    pub fn has_layout(&self, layout: &str) -> bool {
+        self.registry.has_template(layout)
+    }
+
     pub fn render<T: Serialize>(&self, layout: &str, data: &T) -> Result<String> {
         if !self.registry.has_template(layout) {
             bail!(

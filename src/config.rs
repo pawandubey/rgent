@@ -73,10 +73,10 @@ pub struct SocialConfig {
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct SiteConfig {
-    name: String,
+    pub name: String,
 
     #[serde(default)]
-    tagline: Option<String>,
+    pub tagline: Option<String>,
 
     pub author: String,
 

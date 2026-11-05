@@ -11,6 +11,7 @@ use crate::{
     config::Config,
     dates::DatePattern,
     excerpt::{self, EXCERPT_LENGTH},
+    feed::{self, FeedChannel, FeedItem, FEED_FILE, FEED_ITEMS},
     highlight::Highlighter,
     pagination::{self, IndexPage},
     preview,
@@ -27,6 +28,7 @@ const DEFAULT_LAYOUT: &str = "post";
 const INDEX_LAYOUT: &str = "index";
 const PAGE_LAYOUT: &str = "page";
 const NAV_TAG: &str = "nav";
+const FEED_LAYOUT: &str = "feed";
 
 pub struct Operations {}
 
@@ -72,6 +74,19 @@ struct IndexLayoutData<'a> {
     config: &'a Config,
     index: IndexPage<'a, &'a Entry>,
     nav_pages: &'a [&'a Entry],
+}
+
+#[derive(Serialize)]
+struct FeedLayoutData<'a> {
+    config: &'a Config,
+    feed: FeedData<'a>,
+    nav_pages: &'a [&'a Entry],
+}
+
+#[derive(Serialize)]
+struct FeedData<'a> {
+    url: &'a str,
+    posts: &'a [&'a Entry],
 }
 
 #[derive(Serialize)]
@@ -328,6 +343,7 @@ impl Operations {
         });
 
         Self::write_index_pages(&theme, &config, &posts, &nav_pages, &output_dir)?;
+        Self::write_feed(&theme, &config, &posts, &nav_pages, &output_dir)?;
         theme.copy_assets(&output_dir)?;
         Ok(())
     }
@@ -412,6 +428,58 @@ impl Operations {
         }
 
         Ok(())
+    }
+
+    fn write_feed(
+        theme: &Theme,
+        config: &Config,
+        posts: &[&Entry],
+        nav_pages: &[&Entry],
+        output_dir: &Path,
+    ) -> Result<()> {
+        let base_url = config.site.base_url.trim_end_matches('/');
+        let site_url = format!("{}/", base_url);
+        let feed_url = format!("{}/{}", base_url, FEED_FILE);
+        let latest = &posts[..posts.len().min(FEED_ITEMS)];
+
+        let xml = if theme.has_layout(FEED_LAYOUT) {
+            theme.render(
+                FEED_LAYOUT,
+                &FeedLayoutData {
+                    config,
+                    feed: FeedData {
+                        url: &feed_url,
+                        posts: latest,
+                    },
+                    nav_pages,
+                },
+            )?
+        } else {
+            let items: Vec<FeedItem> = latest
+                .iter()
+                .filter_map(|post| {
+                    post.published_on.map(|published_on| FeedItem {
+                        title: &post.title,
+                        link: &post.permalink,
+                        description: &post.excerpt,
+                        content: &post.content,
+                        published_on,
+                        tags: &post.tags,
+                    })
+                })
+                .collect();
+            let channel = FeedChannel {
+                title: &config.site.name,
+                link: &site_url,
+                description: config.site.tagline.as_deref().unwrap_or(&config.site.name),
+                feed_url: &feed_url,
+            };
+            feed::render_rss(&channel, &items)?
+        };
+
+        let output_path = output_dir.join(FEED_FILE);
+        fs::write(&output_path, xml)
+            .with_context(|| format!("Failed to write feed to {:?}", output_path))
     }
 
     fn url_for_dir(dir: &Path, output_dir: &Path) -> Result<String> {
@@ -952,6 +1020,84 @@ slug = 'custom-test-post'
         assert!(post.contains("<p>Intro <em>here</em>.</p>"), "{}", post);
         assert!(post.contains("<p>The rest.</p>"), "{}", post);
         assert!(!post.contains("more##"), "{}", post);
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_writes_rss_feed() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        for day in 1..=22 {
+            write_content(
+                &target_dir,
+                &format!("post-{:02}.md", day),
+                &format!(
+                    "title = 'Post {:02}'\ndate = '2024 01 {:02}'\ntags = ['t{}']",
+                    day, day, day
+                ),
+            );
+        }
+        write_content(
+            &target_dir,
+            "about.md",
+            "title = 'About'\nlayout = 'page'\ntags = ['nav']",
+        );
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let xml =
+            fs::read_to_string(target_dir.child("output/feed.xml")).expect("Failed to read feed");
+        let channel: rss::Channel = xml.parse().expect("Feed should be valid RSS");
+
+        assert_eq!("New Rgent Site", channel.title());
+        assert_eq!("https://blog.example.com/", channel.link());
+        assert_eq!("Your Catchy Tagline", channel.description());
+        assert_eq!(FEED_ITEMS, channel.items().len());
+
+        let titles: Vec<&str> = channel.items().iter().filter_map(|i| i.title()).collect();
+        assert_eq!(Some(&"Post 22"), titles.first());
+        assert_eq!(Some(&"Post 03"), titles.last());
+        assert!(!titles.contains(&"About"));
+
+        let newest = &channel.items()[0];
+        assert_eq!(Some("https://blog.example.com/post-22/"), newest.link());
+        assert_eq!(Some("Mon, 22 Jan 2024 00:00:00 +0000"), newest.pub_date());
+        assert_eq!(
+            Some("<p>Body of post-22.md</p>"),
+            newest.description().map(str::trim)
+        );
+        assert_eq!(
+            Some("<p>Body of post-22.md</p>"),
+            newest.content().map(str::trim)
+        );
+        assert_eq!(
+            Some("Mon, 22 Jan 2024 00:00:00 +0000"),
+            channel.last_build_date()
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_uses_theme_feed_layout_when_present() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        fs::write(
+            target_dir.child("themes/wells/feed.html"),
+            "{{feed.url}}|{{#each feed.posts}}{{title}}@{{permalink}},{{/each}}",
+        )
+        .unwrap();
+        write_content(&target_dir, "a.md", "title = 'First'\ndate = '2024 01 01'");
+        write_content(&target_dir, "b.md", "title = 'Second'\ndate = '2024 01 02'");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        assert_eq!(
+            "https://blog.example.com/feed.xml|Second@https://blog.example.com/second/,First@https://blog.example.com/first/,",
+            read_output(&target_dir, "feed.xml")
+        );
         temp_dir.close().unwrap();
     }
 
