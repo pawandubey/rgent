@@ -362,6 +362,10 @@ mod test {
             "config": {"site": {"name": "My Site", "baseurl": "https://example.com"}},
             "post": {"title": "Hello", "content": "<p>Body</p>", "tags": ["a"]},
             "nav_pages": [{"title": "About", "url": "/about/"}],
+            "social_links": [
+                {"label": "GitHub", "url": "https://github.com/pawandubey"},
+                {"label": "Mastodon", "url": "https://tiny.tilde.website/@pawandubey"},
+            ],
         });
 
         for layout in ["post", "page"] {
@@ -370,6 +374,11 @@ mod test {
             assert!(html.contains("My Site"), "{}", html);
             assert!(
                 html.contains("<li><a href=\"/about/\">About</a></li>"),
+                "{}",
+                html
+            );
+            assert!(
+                html.contains("<li><a href=\"https://github.com/pawandubey\" rel=\"me\">GitHub</a></li><li><a href=\"https://tiny.tilde.website/@pawandubey\" rel=\"me\">Mastodon</a></li>"),
                 "{}",
                 html
             );

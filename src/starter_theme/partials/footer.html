@@ -2,9 +2,7 @@
     <p>&copy; {{config.site.author}}</p>
     <ul class="social">
       <li><a href="/feed.xml">RSS</a></li>
-      {{#if config.social.github}}<li><a href="https://github.com/{{config.social.github}}">GitHub</a></li>{{/if}}
-      {{#if config.social.twitter}}<li><a href="https://twitter.com/{{config.social.twitter}}">Twitter</a></li>{{/if}}
-      {{#if config.social.mastodon}}<li><a href="{{config.social.mastodon}}">Mastodon</a></li>{{/if}}
+      {{#each social_links}}<li><a href="{{url}}" rel="me">{{label}}</a></li>{{/each}}
     </ul>
   </footer>
 </body>

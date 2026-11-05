@@ -12,6 +12,7 @@ mod highlight;
 mod operations;
 mod pagination;
 mod preview;
+mod social;
 mod taxonomy;
 mod theme;
 

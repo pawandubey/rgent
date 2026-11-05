@@ -80,6 +80,8 @@ set_config() {
 }
 set_config postsperindex 3
 set_config rendertags true
+set_config github "'pawandubey'"
+set_config mastodon "'@tophat@example.social'"
 
 cd "$site_dir"
 "$rgent" preview ${port:+--port "$port"} &

@@ -17,6 +17,7 @@ use crate::{
     highlight::Highlighter,
     pagination::{self, IndexPage},
     preview,
+    social::{self, SocialLink},
     taxonomy::{self, TagLink, TAGS_DIR},
     theme::Theme,
 };
@@ -69,33 +70,40 @@ impl ContentKind {
 }
 
 #[derive(Serialize)]
-struct LayoutData<'a> {
+struct SiteData<'a> {
     config: &'a Config,
-    post: &'a Entry,
     nav_pages: &'a [&'a Entry],
+    social_links: &'a [SocialLink],
+}
+
+#[derive(Serialize)]
+struct LayoutData<'a> {
+    #[serde(flatten)]
+    site: &'a SiteData<'a>,
+    post: &'a Entry,
 }
 
 #[derive(Serialize)]
 struct IndexLayoutData<'a> {
-    config: &'a Config,
+    #[serde(flatten)]
+    site: &'a SiteData<'a>,
     index: IndexPage<'a, &'a Entry>,
-    nav_pages: &'a [&'a Entry],
 }
 
 #[derive(Serialize)]
 struct TagIndexLayoutData<'a> {
-    config: &'a Config,
+    #[serde(flatten)]
+    site: &'a SiteData<'a>,
     tag: &'a TagLink,
     index: IndexPage<'a, &'a Entry>,
     tags: &'a [TagLink],
-    nav_pages: &'a [&'a Entry],
 }
 
 #[derive(Serialize)]
 struct FeedLayoutData<'a> {
-    config: &'a Config,
+    #[serde(flatten)]
+    site: &'a SiteData<'a>,
     feed: FeedData<'a>,
-    nav_pages: &'a [&'a Entry],
 }
 
 #[derive(Serialize)]
@@ -168,6 +176,7 @@ impl Operations {
 
     pub fn publish(root: &Path, _rebuild: bool) -> Result<(), anyhow::Error> {
         let config = Self::load_config(root)?;
+        let social_links = social::social_links(&config.social)?;
 
         let mut md_options = pulldown_cmark::Options::empty();
         md_options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
@@ -376,9 +385,15 @@ impl Operations {
             .collect();
         nav_pages.sort_by(|a, b| a.title.cmp(&b.title));
 
+        let site = SiteData {
+            config: &config,
+            nav_pages: &nav_pages,
+            social_links: &social_links,
+        };
+
         let mut generated = HashSet::new();
         for entry in &entries {
-            Self::write_entry(&theme, &config, entry, &nav_pages)?;
+            Self::write_entry(&theme, &site, entry)?;
             generated.insert(entry.output_path.clone());
         }
 
@@ -392,29 +407,11 @@ impl Operations {
                 .then_with(|| a.title.cmp(&b.title))
         });
 
-        generated.extend(Self::write_index_pages(
-            &theme,
-            &config,
-            &posts,
-            &nav_pages,
-            &output_dir,
-        )?);
+        generated.extend(Self::write_index_pages(&theme, &site, &posts, &output_dir)?);
         if config.render_tags {
-            generated.extend(Self::write_tag_pages(
-                &theme,
-                &config,
-                &posts,
-                &nav_pages,
-                &output_dir,
-            )?);
+            generated.extend(Self::write_tag_pages(&theme, &site, &posts, &output_dir)?);
         }
-        generated.insert(Self::write_feed(
-            &theme,
-            &config,
-            &posts,
-            &nav_pages,
-            &output_dir,
-        )?);
+        generated.insert(Self::write_feed(&theme, &site, &posts, &output_dir)?);
         generated.extend(theme.copy_assets(&output_dir)?);
         content_assets.copy(&generated)?;
         Ok(())
@@ -442,17 +439,8 @@ impl Operations {
         Ok(html)
     }
 
-    fn write_entry(
-        theme: &Theme,
-        config: &Config,
-        entry: &Entry,
-        nav_pages: &[&Entry],
-    ) -> Result<()> {
-        let layout_data = LayoutData {
-            config,
-            post: entry,
-            nav_pages,
-        };
+    fn write_entry(theme: &Theme, site: &SiteData, entry: &Entry) -> Result<()> {
+        let layout_data = LayoutData { site, post: entry };
         let rendered = theme
             .render(&entry.layout, &layout_data)
             .with_context(|| format!("Failed to render {:?}", entry.source_path))?;
@@ -467,31 +455,25 @@ impl Operations {
 
     fn write_index_pages(
         theme: &Theme,
-        config: &Config,
+        site: &SiteData,
         posts: &[&Entry],
-        nav_pages: &[&Entry],
         output_dir: &Path,
     ) -> Result<Vec<PathBuf>> {
         Self::write_paginated(
             theme,
             INDEX_LAYOUT,
             posts,
-            config.posts_per_page,
+            site.config.posts_per_page,
             "/",
             output_dir,
-            |index| IndexLayoutData {
-                config,
-                index,
-                nav_pages,
-            },
+            |index| IndexLayoutData { site, index },
         )
     }
 
     fn write_tag_pages(
         theme: &Theme,
-        config: &Config,
+        site: &SiteData,
         posts: &[&Entry],
-        nav_pages: &[&Entry],
         output_dir: &Path,
     ) -> Result<Vec<PathBuf>> {
         if !theme.has_layout(TAG_INDEX_LAYOUT) {
@@ -511,15 +493,14 @@ impl Operations {
                     theme,
                     TAG_INDEX_LAYOUT,
                     &group.posts,
-                    config.posts_per_page,
+                    site.config.posts_per_page,
                     &group.tag.url,
                     &output_dir.join(TAGS_DIR).join(&group.tag.slug),
                     |index| TagIndexLayoutData {
-                        config,
+                        site,
                         tag: &group.tag,
                         index,
                         tags: &all_tags,
-                        nav_pages,
                     },
                 )
                 .with_context(|| format!("Failed to write pages for tag {:?}", group.tag.name))?,
@@ -567,11 +548,11 @@ impl Operations {
 
     fn write_feed(
         theme: &Theme,
-        config: &Config,
+        site: &SiteData,
         posts: &[&Entry],
-        nav_pages: &[&Entry],
         output_dir: &Path,
     ) -> Result<PathBuf> {
+        let config = site.config;
         let base_url = config.site.base_url.trim_end_matches('/');
         let site_url = format!("{}/", base_url);
         let feed_url = format!("{}/{}", base_url, FEED_FILE);
@@ -581,12 +562,11 @@ impl Operations {
             theme.render(
                 FEED_LAYOUT,
                 &FeedLayoutData {
-                    config,
+                    site,
                     feed: FeedData {
                         url: &feed_url,
                         posts: latest,
                     },
-                    nav_pages,
                 },
             )?
         } else {
@@ -1551,6 +1531,76 @@ slug = 'custom-test-post'
             "relative.png",
             Operations::absolute_url(base, "relative.png")
         );
+    }
+
+    #[test]
+    fn test_publish_exposes_social_links_to_all_layouts() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        replace_in_config(&target_dir, "rendertags = false", "rendertags = true");
+        replace_in_config(
+            &target_dir,
+            "twitter = ''\ngithub = ''\nmastodon = ''",
+            "mastodon = '@pawan@hachyderm.io'\ngithub = 'pawandubey'\ntwitter = ''\nwebsite = 'https://pawandubey.com'\ndisqus = 'myblog'",
+        );
+        let links = "{{#each social_links}}{{network}}={{url}},{{/each}}|{{config.social.github}}|{{config.social.disqus}}";
+        for layout in ["index", "post", "page", "tagindex", "feed"] {
+            fs::write(
+                target_dir.child(format!("themes/wells/{}.html", layout)),
+                format!("{}|{}", layout, links),
+            )
+            .unwrap();
+        }
+        write_content(
+            &target_dir,
+            "post.md",
+            "title = 'Post'\ndate = '2024 01 01'\ntags = ['x']",
+        );
+        write_content(&target_dir, "about.md", "title = 'About'\nlayout = 'page'");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let expected = "mastodon=https://hachyderm.io/@pawan,github=https://github.com/pawandubey,website=https://pawandubey.com,|pawandubey|myblog";
+        for (layout, path) in [
+            ("index", "index.html"),
+            ("post", "post/index.html"),
+            ("page", "about/index.html"),
+            ("tagindex", "tags/x/index.html"),
+            ("feed", "feed.xml"),
+        ] {
+            assert_eq!(
+                format!("{}|{}", layout, expected),
+                read_output(&target_dir, path)
+            );
+        }
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_rejects_invalid_social_entries_before_writing() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        replace_in_config(&target_dir, "mastodon = ''", "myspace = 'tom'");
+        write_content(
+            &target_dir,
+            "post.md",
+            "title = 'Post'\ndate = '2024 01 01'",
+        );
+
+        let error = Operations::publish(&target_dir, false)
+            .expect_err("An unknown social network should fail");
+
+        assert!(
+            format!("{:#}", error).contains("Unknown network `myspace`"),
+            "{:#}",
+            error
+        );
+        target_dir
+            .child("output/post")
+            .assert(predicate::path::missing());
+        temp_dir.close().unwrap();
     }
 
     #[test]

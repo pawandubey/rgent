@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -25,7 +26,8 @@ pub struct Config {
 
     pub preview: PreviewConfig,
 
-    social: SocialConfig,
+    #[serde(default)]
+    pub social: IndexMap<String, String>,
 
     pub site: SiteConfig,
 }
@@ -43,11 +45,10 @@ impl Default for Config {
             posts_per_page: 10,
             render_tags: false,
             preview: PreviewConfig { port: 9090 },
-            social: SocialConfig {
-                twitter: Some("".into()),
-                github: Some("".into()),
-                mastodon: Some("".into()),
-            },
+            social: ["twitter", "github", "mastodon"]
+                .into_iter()
+                .map(|network| (network.to_string(), String::new()))
+                .collect(),
             site: SiteConfig {
                 name: "New Rgent Site".into(),
                 tagline: Some("Your Catchy Tagline".into()),
@@ -61,14 +62,6 @@ impl Default for Config {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PreviewConfig {
     pub port: u16,
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
-#[serde(default)]
-pub struct SocialConfig {
-    twitter: Option<String>,
-    github: Option<String>,
-    mastodon: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
@@ -106,11 +99,10 @@ mod test {
             posts_per_page: 10,
             render_tags: false,
             preview: PreviewConfig { port: 9090 },
-            social: SocialConfig {
-                twitter: Some("thepawandubey".into()),
-                github: Some("pawandubey".into()),
-                mastodon: None,
-            },
+            social: [("twitter", "thepawandubey"), ("github", "pawandubey")]
+                .into_iter()
+                .map(|(network, value)| (network.to_string(), value.to_string()))
+                .collect(),
             site: SiteConfig {
                 name: "Not So Null".into(),
                 tagline: Some("Code += Play".into()),
