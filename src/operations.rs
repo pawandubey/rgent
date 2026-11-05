@@ -10,6 +10,7 @@ use chrono::NaiveDate;
 use crate::{
     config::Config,
     dates::DatePattern,
+    excerpt::{self, EXCERPT_LENGTH},
     highlight::Highlighter,
     pagination::{self, IndexPage},
     preview,
@@ -85,6 +86,8 @@ struct Entry {
     url: String,
     permalink: String,
     content: String,
+    excerpt: String,
+    has_more: bool,
     #[serde(skip)]
     published_on: Option<NaiveDate>,
     #[serde(skip)]
@@ -184,18 +187,28 @@ impl Operations {
                     format!("Failed to parse frontmatter for {:?}", dir_entry.path())
                 })?;
 
-                let content_parser = pulldown_cmark::Parser::new_ext(markdown, md_options);
-
-                let mut html = String::with_capacity(markdown.len());
-                match &highlighter {
-                    Some(highlighter) => pulldown_cmark::html::push_html(
-                        &mut html,
-                        highlighter
-                            .highlight_events(content_parser, dir_entry.path())?
-                            .into_iter(),
+                let parts = excerpt::split_at_marker(markdown, md_options);
+                let html = Self::render_markdown(
+                    &parts.body,
+                    md_options,
+                    highlighter.as_ref(),
+                    dir_entry.path(),
+                )?;
+                let (excerpt_html, has_more) = match parts.excerpt {
+                    Some(excerpt_markdown) => (
+                        Self::render_markdown(
+                            excerpt_markdown,
+                            md_options,
+                            highlighter.as_ref(),
+                            dir_entry.path(),
+                        )?,
+                        true,
                     ),
-                    None => pulldown_cmark::html::push_html(&mut html, content_parser),
-                }
+                    None => {
+                        let summary = excerpt::summarize(&parts.body, md_options, EXCERPT_LENGTH);
+                        (summary.html, summary.has_more)
+                    }
+                };
 
                 // let title = &frontmatter.title;
 
@@ -208,9 +221,6 @@ impl Operations {
                         .split_whitespace()
                         .join("-"),
                 };
-
-                dbg!(&frontmatter);
-                dbg!(&slug);
 
                 // let dir_file_stem = dir_entry.path().file_stem().with_context(|| {
                 //     format!("Failed to get file stem from path: {:?}", dir_entry.path())
@@ -233,9 +243,6 @@ impl Operations {
                         output_path
                     )
                 })?;
-
-                dbg!(&indexed_output_file_path);
-                dbg!(&indexed_base_dir);
 
                 fs::create_dir_all(indexed_base_dir).with_context(|| {
                     format!(
@@ -279,6 +286,8 @@ impl Operations {
                     permalink: format!("{}{}", config.site.base_url.trim_end_matches('/'), url),
                     url,
                     content: html,
+                    excerpt: excerpt_html,
+                    has_more,
                     published_on,
                     layout,
                     source_path: dir_entry.path().to_path_buf(),
@@ -321,6 +330,26 @@ impl Operations {
         Self::write_index_pages(&theme, &config, &posts, &nav_pages, &output_dir)?;
         theme.copy_assets(&output_dir)?;
         Ok(())
+    }
+
+    fn render_markdown(
+        markdown: &str,
+        options: pulldown_cmark::Options,
+        highlighter: Option<&Highlighter>,
+        source: &Path,
+    ) -> Result<String> {
+        let parser = pulldown_cmark::Parser::new_ext(markdown, options);
+        let mut html = String::with_capacity(markdown.len());
+
+        match highlighter {
+            Some(highlighter) => pulldown_cmark::html::push_html(
+                &mut html,
+                highlighter.highlight_events(parser, source)?.into_iter(),
+            ),
+            None => pulldown_cmark::html::push_html(&mut html, parser),
+        }
+
+        Ok(html)
     }
 
     fn write_entry(
@@ -877,6 +906,52 @@ slug = 'custom-test-post'
             "<pre><code class=\"language-rust\">fn main() {}\n</code></pre>",
             read_output(&target_dir, "code/index.html")
         );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_exposes_excerpts() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        fs::write(
+            target_dir.child("themes/wells/index.html"),
+            "{{#each index.posts}}[{{title}}|{{has_more}}|{{{excerpt}}}]{{/each}}",
+        )
+        .unwrap();
+        fs::write(
+            target_dir.child("themes/wells/post.html"),
+            "{{{post.content}}}",
+        )
+        .unwrap();
+
+        fs::write(
+            target_dir.child("content/marked.md"),
+            "title = 'Marked'\ndate = '2024 01 02'\n\n#####\n\nIntro *here*.\n\n```rust\nfn intro() {}\n```\n\n##more##\n\nThe rest.\n",
+        )
+        .unwrap();
+        fs::write(
+            target_dir.child("content/short.md"),
+            "title = 'Short'\ndate = '2024 01 01'\n\n#####\n\nAll of it.\n",
+        )
+        .unwrap();
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let index = read_output(&target_dir, "index.html");
+        let (marked, short) = index.split_once("][").expect("Expected two posts");
+        assert!(
+            marked.starts_with("[Marked|true|<p>Intro <em>here</em>.</p>\n<pre class=\"giallo"),
+            "{}",
+            marked
+        );
+        assert!(!marked.contains("The rest."), "{}", marked);
+        assert_eq!("Short|false|<p>All of it.</p>\n]", short);
+
+        let post = read_output(&target_dir, "marked/index.html");
+        assert!(post.contains("<p>Intro <em>here</em>.</p>"), "{}", post);
+        assert!(post.contains("<p>The rest.</p>"), "{}", post);
+        assert!(!post.contains("more##"), "{}", post);
         temp_dir.close().unwrap();
     }
 

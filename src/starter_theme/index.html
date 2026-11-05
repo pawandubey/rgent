@@ -5,8 +5,9 @@
       <h2 class="post-title"><a href="{{url}}">{{title}}</a></h2>
       <p class="post-meta"><time datetime="{{date_iso}}">{{date}}</time> &middot; {{author}}</p>
       <div class="post-content">
-        {{{content}}}
+        {{{excerpt}}}
       </div>
+      {{#if has_more}}<p class="read-more"><a href="{{url}}">Read more &rarr;</a></p>{{/if}}
     </article>
     {{else}}
     <p>No posts yet.</p>

@@ -367,7 +367,10 @@ mod test {
         let index_data = json!({
             "config": {"site": {"name": "My Site"}},
             "index": {
-                "posts": [{"title": "First", "url": "/first/", "content": "<p>One</p>"}],
+                "posts": [
+                    {"title": "First", "url": "/first/", "excerpt": "<p>One</p>", "has_more": true},
+                    {"title": "Second", "url": "/second/", "excerpt": "<p>Two</p>", "has_more": false},
+                ],
                 "current_page": 1,
                 "total_pages": 2,
                 "next_page": "/page/2/",
@@ -383,6 +386,13 @@ mod test {
         assert!(html.contains("<title>My Site</title>"), "{}", html);
         assert!(html.contains("<a href=\"/first/\">First</a>"), "{}", html);
         assert!(html.contains("<p>One</p>"), "{}", html);
+        assert!(html.contains("<p>Two</p>"), "{}", html);
+        assert_eq!(1, html.matches("Read more").count(), "{}", html);
+        assert!(
+            html.contains("<a href=\"/first/\">Read more &rarr;</a>"),
+            "{}",
+            html
+        );
         assert!(
             html.contains("<a href=\"/page/2/\">Older &rarr;</a>"),
             "{}",

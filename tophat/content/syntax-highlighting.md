@@ -6,6 +6,16 @@ tags = ['code']
 
 Code blocks are highlighted at build time using the giallo themes named in the theme's `theme.toml`. Switch your OS between light and dark mode to see both themes.
 
+A short example appears in the excerpt on the index, because it comes before the `##more##` marker:
+
+```rust
+fn main() {
+    println!("Shown in the excerpt");
+}
+```
+
+##more##
+
 ## Rust
 
 ```rust
