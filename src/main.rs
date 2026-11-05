@@ -4,6 +4,7 @@ use operations::Operations;
 
 mod cli;
 mod config;
+mod dates;
 mod operations;
 mod pagination;
 mod preview;

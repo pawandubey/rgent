@@ -10,4 +10,12 @@
   <header class="site-header">
     <a class="site-name" href="/">{{config.site.name}}</a>
     {{#if config.site.tagline}}<p class="site-tagline">{{config.site.tagline}}</p>{{/if}}
+    {{#if nav_pages}}
+    <nav class="site-nav">
+      <ul>
+        <li><a href="/">Home</a></li>
+        {{#each nav_pages}}<li><a href="{{url}}">{{title}}</a></li>{{/each}}
+      </ul>
+    </nav>
+    {{/if}}
   </header>

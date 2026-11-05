@@ -273,7 +273,7 @@ mod test {
         let content = indoc! {r#"
         title = 'Test post'
         author = 'Pawan Dubey'
-        date = '2024-12-28'
+        date = '2024 12 28'
         tags = []
 
         #####

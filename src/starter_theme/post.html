@@ -2,7 +2,7 @@
   <main>
     <article class="post">
       <h1 class="post-title">{{post.title}}</h1>
-      <p class="post-meta">{{post.date}} &middot; {{post.author}}</p>
+      <p class="post-meta"><time datetime="{{post.date_iso}}">{{post.date}}</time> &middot; {{post.author}}</p>
       <div class="post-content">
         {{{post.content}}}
       </div>

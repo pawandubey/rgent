@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub source: String,
     pub output: String,
-    exclude: Vec<String>,
+    pub exclude: Vec<String>,
 
     #[serde(rename = "inputdate")]
-    input_date_format: String,
+    pub input_date_format: String,
 
     #[serde(rename = "outputdate")]
-    output_date_format: String,
+    pub output_date_format: String,
 
     pub theme: String,
 
@@ -78,7 +78,7 @@ pub struct SiteConfig {
     #[serde(default)]
     tagline: Option<String>,
 
-    author: String,
+    pub author: String,
 
     #[serde(rename = "baseurl")]
     pub base_url: String,

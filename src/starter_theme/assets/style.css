@@ -28,7 +28,8 @@ a {
 }
 
 .post-tags,
-.social {
+.social,
+.site-nav ul {
   display: flex;
   gap: 0.75rem;
   padding: 0;

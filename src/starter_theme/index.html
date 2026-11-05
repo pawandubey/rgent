@@ -3,7 +3,7 @@
     {{#each index.posts}}
     <article class="post-summary">
       <h2 class="post-title"><a href="{{url}}">{{title}}</a></h2>
-      <p class="post-meta">{{date}} &middot; {{author}}</p>
+      <p class="post-meta"><time datetime="{{date_iso}}">{{date}}</time> &middot; {{author}}</p>
       <div class="post-content">
         {{{content}}}
       </div>
