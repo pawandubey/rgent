@@ -11,6 +11,7 @@ mod highlight;
 mod operations;
 mod pagination;
 mod preview;
+mod taxonomy;
 mod theme;
 
 fn main() -> Result<()> {

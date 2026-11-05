@@ -1,7 +1,7 @@
 title = 'Welcome to the Tophat Blog'
 author = 'Tophat Author'
 date = '2024 03 15'
-tags = ['meta', 'tophat']
+tags = ['meta', 'tophat', 'rgent']
 
 #####
 

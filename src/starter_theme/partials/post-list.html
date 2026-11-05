@@ -1,0 +1,24 @@
+    {{#each index.posts}}
+    <article class="post-summary">
+      <h2 class="post-title"><a href="{{url}}">{{title}}</a></h2>
+      <p class="post-meta"><time datetime="{{date_iso}}">{{date}}</time> &middot; {{author}}</p>
+      <div class="post-content">
+        {{{excerpt}}}
+      </div>
+      {{#if has_more}}<p class="read-more"><a href="{{url}}">Read more &rarr;</a></p>{{/if}}
+    </article>
+    {{else}}
+    <p>No posts yet.</p>
+    {{/each}}
+
+    {{#if (gt index.total_pages 1)}}
+    <nav class="pagination">
+      {{#if index.previous_page}}<a href="{{index.previous_page}}">&larr; Newer</a>{{/if}}
+      <ul>
+        {{#each index.pages}}
+        <li>{{#if current}}<span>{{number}}</span>{{else}}<a href="{{url}}">{{number}}</a>{{/if}}</li>
+        {{/each}}
+      </ul>
+      {{#if index.next_page}}<a href="{{index.next_page}}">Older &rarr;</a>{{/if}}
+    </nav>
+    {{/if}}

@@ -1,0 +1,15 @@
+{{> header}}
+  <main>
+    <h1 class="tag-title">Posts tagged &ldquo;{{tag.name}}&rdquo;</h1>
+{{> post-list}}
+
+    <nav class="tag-list">
+      <h2>All tags</h2>
+      <ul>
+        {{#each tags}}
+        <li>{{#if (eq slug ../tag.slug)}}<span>{{name}}</span>{{else}}<a href="{{url}}">{{name}}</a>{{/if}}</li>
+        {{/each}}
+      </ul>
+    </nav>
+  </main>
+{{> footer}}

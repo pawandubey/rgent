@@ -70,12 +70,16 @@ rgent="$repo_root/target/debug/rgent"
 cp -R "$repo_root/tophat/content/." "$site_dir/content/"
 
 config="$site_dir/rgent.toml"
-grep -q "^postsperindex = " "$config" || {
-    echo "Could not find postsperindex in $config" >&2
-    exit 1
+set_config() {
+    grep -q "^$1 = " "$config" || {
+        echo "Could not find $1 in $config" >&2
+        exit 1
+    }
+    sed -i.bak "s/^$1 = .*/$1 = $2/" "$config"
+    rm -f "$config.bak"
 }
-sed -i.bak "s/^postsperindex = .*/postsperindex = 3/" "$config"
-rm -f "$config.bak"
+set_config postsperindex 3
+set_config rendertags true
 
 cd "$site_dir"
 "$rgent" preview ${port:+--port "$port"} &

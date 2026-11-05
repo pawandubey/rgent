@@ -1,6 +1,6 @@
 title = 'Syntax Highlighting'
 date = '2024 03 12'
-tags = ['code']
+tags = ['code', 'rgent']
 
 #####
 

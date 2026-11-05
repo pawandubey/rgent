@@ -1,6 +1,6 @@
 title = 'Markdown Features & <Escaping>'
 date = '2024 03 10'
-tags = ['markdown']
+tags = ['markdown', 'rgent']
 slug = 'markdown-tour'
 
 #####

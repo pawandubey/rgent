@@ -15,6 +15,7 @@ use crate::{
     highlight::Highlighter,
     pagination::{self, IndexPage},
     preview,
+    taxonomy::{self, TagLink, TAGS_DIR},
     theme::Theme,
 };
 
@@ -29,6 +30,7 @@ const INDEX_LAYOUT: &str = "index";
 const PAGE_LAYOUT: &str = "page";
 const NAV_TAG: &str = "nav";
 const FEED_LAYOUT: &str = "feed";
+const TAG_INDEX_LAYOUT: &str = "tagindex";
 
 pub struct Operations {}
 
@@ -77,6 +79,15 @@ struct IndexLayoutData<'a> {
 }
 
 #[derive(Serialize)]
+struct TagIndexLayoutData<'a> {
+    config: &'a Config,
+    tag: &'a TagLink,
+    index: IndexPage<'a, &'a Entry>,
+    tags: &'a [TagLink],
+    nav_pages: &'a [&'a Entry],
+}
+
+#[derive(Serialize)]
 struct FeedLayoutData<'a> {
     config: &'a Config,
     feed: FeedData<'a>,
@@ -97,6 +108,7 @@ struct Entry {
     date: Option<String>,
     date_iso: Option<String>,
     tags: Vec<String>,
+    tag_links: Vec<TagLink>,
     slug: String,
     url: String,
     permalink: String,
@@ -297,6 +309,11 @@ impl Operations {
                     date: published_on.map(|date| output_date.format(date)),
                     date_iso: published_on.map(|date| date.format("%Y-%m-%d").to_string()),
                     tags: frontmatter.tags.clone(),
+                    tag_links: frontmatter
+                        .tags
+                        .iter()
+                        .map(|tag| TagLink::new(tag))
+                        .collect(),
                     slug: slug.trim().to_string(),
                     permalink: format!("{}{}", config.site.base_url.trim_end_matches('/'), url),
                     url,
@@ -343,6 +360,9 @@ impl Operations {
         });
 
         Self::write_index_pages(&theme, &config, &posts, &nav_pages, &output_dir)?;
+        if config.render_tags {
+            Self::write_tag_pages(&theme, &config, &posts, &nav_pages, &output_dir)?;
+        }
         Self::write_feed(&theme, &config, &posts, &nav_pages, &output_dir)?;
         theme.copy_assets(&output_dir)?;
         Ok(())
@@ -398,8 +418,71 @@ impl Operations {
         nav_pages: &[&Entry],
         output_dir: &Path,
     ) -> Result<()> {
-        for index in pagination::paginate(posts, config.posts_per_page) {
-            let output_path = pagination::page_output_path(output_dir, index.current_page);
+        Self::write_paginated(
+            theme,
+            INDEX_LAYOUT,
+            posts,
+            config.posts_per_page,
+            "/",
+            output_dir,
+            |index| IndexLayoutData {
+                config,
+                index,
+                nav_pages,
+            },
+        )
+    }
+
+    fn write_tag_pages(
+        theme: &Theme,
+        config: &Config,
+        posts: &[&Entry],
+        nav_pages: &[&Entry],
+        output_dir: &Path,
+    ) -> Result<()> {
+        if !theme.has_layout(TAG_INDEX_LAYOUT) {
+            bail!(
+                "`rendertags` is enabled, but the theme has no `{}.html` layout for tag pages",
+                TAG_INDEX_LAYOUT
+            );
+        }
+
+        let groups = taxonomy::group_by_tag(posts, |post| &post.tags)?;
+        let all_tags: Vec<TagLink> = groups.iter().map(|group| group.tag.clone()).collect();
+
+        for group in &groups {
+            Self::write_paginated(
+                theme,
+                TAG_INDEX_LAYOUT,
+                &group.posts,
+                config.posts_per_page,
+                &group.tag.url,
+                &output_dir.join(TAGS_DIR).join(&group.tag.slug),
+                |index| TagIndexLayoutData {
+                    config,
+                    tag: &group.tag,
+                    index,
+                    tags: &all_tags,
+                    nav_pages,
+                },
+            )
+            .with_context(|| format!("Failed to write pages for tag {:?}", group.tag.name))?;
+        }
+
+        Ok(())
+    }
+
+    fn write_paginated<'a, D: Serialize>(
+        theme: &Theme,
+        layout: &str,
+        posts: &'a [&'a Entry],
+        per_page: u64,
+        base_url: &str,
+        dir: &Path,
+        layout_data: impl Fn(IndexPage<'a, &'a Entry>) -> D,
+    ) -> Result<()> {
+        for index in pagination::paginate(posts, per_page, base_url) {
+            let output_path = pagination::page_output_path(dir, index.current_page);
             let current_page = index.current_page;
 
             if let Some(parent) = output_path.parent() {
@@ -409,20 +492,13 @@ impl Operations {
             }
 
             let rendered = theme
-                .render(
-                    INDEX_LAYOUT,
-                    &IndexLayoutData {
-                        config,
-                        index,
-                        nav_pages,
-                    },
-                )
-                .with_context(|| format!("Failed to render index page {}", current_page))?;
+                .render(layout, &layout_data(index))
+                .with_context(|| format!("Failed to render {} page {}", layout, current_page))?;
 
             fs::write(&output_path, rendered).with_context(|| {
                 format!(
-                    "Failed to write index page {} to {:?}",
-                    current_page, output_path
+                    "Failed to write {} page {} to {:?}",
+                    layout, current_page, output_path
                 )
             })?;
         }
@@ -1097,6 +1173,135 @@ slug = 'custom-test-post'
         assert_eq!(
             "https://blog.example.com/feed.xml|Second@https://blog.example.com/second/,First@https://blog.example.com/first/,",
             read_output(&target_dir, "feed.xml")
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_writes_paginated_tag_pages() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        replace_in_config(&target_dir, "rendertags = false", "rendertags = true");
+        set_posts_per_page(&target_dir, 2);
+        fs::write(
+            target_dir.child("themes/wells/tagindex.html"),
+            "{{tag.name}}@{{tag.url}}|{{index.current_page}}/{{index.total_pages}}|{{index.next_page}}|{{#each index.posts}}{{title}},{{/each}}|{{#each tags}}{{slug}},{{/each}}",
+        )
+        .unwrap();
+        fs::write(
+            target_dir.child("themes/wells/post.html"),
+            "{{#each post.tag_links}}{{name}}={{url}},{{/each}}",
+        )
+        .unwrap();
+
+        write_content(
+            &target_dir,
+            "a.md",
+            "title = 'A'\ndate = '2024 01 01'\ntags = ['Rust', 'Web Dev']",
+        );
+        write_content(
+            &target_dir,
+            "b.md",
+            "title = 'B'\ndate = '2024 01 02'\ntags = ['rust']",
+        );
+        write_content(
+            &target_dir,
+            "c.md",
+            "title = 'C'\ndate = '2024 01 03'\ntags = ['Rust']",
+        );
+        write_content(
+            &target_dir,
+            "about.md",
+            "title = 'About'\nlayout = 'page'\ntags = ['nav']",
+        );
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        assert_eq!(
+            "Rust@/tags/rust/|1/2|/tags/rust/page/2/|C,B,|rust,web-dev,",
+            read_output(&target_dir, "tags/rust/index.html")
+        );
+        assert_eq!(
+            "Rust@/tags/rust/|2/2||A,|rust,web-dev,",
+            read_output(&target_dir, "tags/rust/page/2/index.html")
+        );
+        assert_eq!(
+            "Web Dev@/tags/web-dev/|1/1||A,|rust,web-dev,",
+            read_output(&target_dir, "tags/web-dev/index.html")
+        );
+        target_dir
+            .child("output/tags/nav")
+            .assert(predicate::path::missing());
+        assert_eq!(
+            "Rust=/tags/rust/,Web Dev=/tags/web-dev/,",
+            read_output(&target_dir, "a/index.html")
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_skips_tag_pages_when_disabled() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        write_content(
+            &target_dir,
+            "a.md",
+            "title = 'A'\ndate = '2024 01 01'\ntags = ['rust']",
+        );
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        target_dir
+            .child("output/tags")
+            .assert(predicate::path::missing());
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_tag_pages_require_tagindex_layout() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        replace_in_config(&target_dir, "rendertags = false", "rendertags = true");
+        fs::remove_file(target_dir.child("themes/wells/tagindex.html")).unwrap();
+
+        let error = Operations::publish(&target_dir, false)
+            .expect_err("Publishing tag pages without a tagindex layout should fail");
+
+        assert!(
+            format!("{:#}", error).contains("has no `tagindex.html` layout"),
+            "{:#}",
+            error
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_reports_colliding_tags() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        replace_in_config(&target_dir, "rendertags = false", "rendertags = true");
+        write_content(
+            &target_dir,
+            "a.md",
+            "title = 'A'\ndate = '2024 01 01'\ntags = ['c']",
+        );
+        write_content(
+            &target_dir,
+            "b.md",
+            "title = 'B'\ndate = '2024 01 02'\ntags = ['c++']",
+        );
+
+        let error =
+            Operations::publish(&target_dir, false).expect_err("Colliding tags should fail");
+
+        assert!(
+            format!("{:#}", error).contains("would both be published at /tags/c/"),
+            "{:#}",
+            error
         );
         temp_dir.close().unwrap();
     }

@@ -17,6 +17,7 @@ const ASSETS_DIR: &str = "assets";
 const STARTER_THEME: &[(&str, &str)] = &[
     ("theme.toml", include_str!("starter_theme/theme.toml")),
     ("index.html", include_str!("starter_theme/index.html")),
+    ("tagindex.html", include_str!("starter_theme/tagindex.html")),
     ("post.html", include_str!("starter_theme/post.html")),
     ("page.html", include_str!("starter_theme/page.html")),
     (
@@ -26,6 +27,10 @@ const STARTER_THEME: &[(&str, &str)] = &[
     (
         "partials/footer.html",
         include_str!("starter_theme/partials/footer.html"),
+    ),
+    (
+        "partials/post-list.html",
+        include_str!("starter_theme/partials/post-list.html"),
     ),
     (
         "assets/style.css",
@@ -403,6 +408,49 @@ mod test {
             html
         );
         assert!(!html.contains("Newer"), "{}", html);
+
+        let tag_data = json!({
+            "config": {"site": {"name": "My Site"}, "rendertags": true},
+            "tag": {"name": "Rust", "slug": "rust", "url": "/tags/rust/"},
+            "tags": [
+                {"name": "Rust", "slug": "rust", "url": "/tags/rust/"},
+                {"name": "Web", "slug": "web", "url": "/tags/web/"},
+            ],
+            "index": {
+                "posts": [{"title": "First", "url": "/first/", "excerpt": "<p>One</p>"}],
+                "current_page": 1,
+                "total_pages": 1,
+                "pages": [{"number": 1, "url": "/tags/rust/", "current": true}],
+            },
+        });
+        let html = theme
+            .render("tagindex", &tag_data)
+            .expect("Failed to render tag index");
+        assert!(html.contains("Posts tagged &ldquo;Rust&rdquo;"), "{}", html);
+        assert!(html.contains("<a href=\"/first/\">First</a>"), "{}", html);
+        assert!(html.contains("<li><span>Rust</span></li>"), "{}", html);
+        assert!(
+            html.contains("<li><a href=\"/tags/web/\">Web</a></li>"),
+            "{}",
+            html
+        );
+
+        let post_data = json!({
+            "config": {"site": {"name": "My Site"}, "rendertags": true},
+            "post": {
+                "title": "Hello",
+                "tags": ["Rust"],
+                "tag_links": [{"name": "Rust", "url": "/tags/rust/"}],
+            },
+        });
+        let html = theme
+            .render("post", &post_data)
+            .expect("Failed to render post");
+        assert!(
+            html.contains("<li><a href=\"/tags/rust/\">Rust</a></li>"),
+            "{}",
+            html
+        );
 
         theme_dir
             .child("assets/style.css")

@@ -21,7 +21,7 @@ pub struct Config {
     pub posts_per_page: u64,
 
     #[serde(rename = "rendertags", default)]
-    render_tags: bool,
+    pub render_tags: bool,
 
     pub preview: PreviewConfig,
 

@@ -8,7 +8,11 @@
       </div>
       {{#if post.tags}}
       <ul class="post-tags">
+        {{#if config.rendertags}}
+        {{#each post.tag_links}}<li><a href="{{url}}">{{name}}</a></li>{{/each}}
+        {{else}}
         {{#each post.tags}}<li>{{this}}</li>{{/each}}
+        {{/if}}
       </ul>
       {{/if}}
     </article>
