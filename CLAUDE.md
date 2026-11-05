@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Test single: `cargo test test_name`
 - Lint: `cargo clippy`
 - Format: `cargo fmt`
+- Tophat blog: `scripts/tophat.sh [--keep] [--port PORT]` builds rgent, generates a throwaway blog from `tophat/content/`, previews it, and deletes it on Ctrl+C
 
 ## Code Style Guidelines
 - Follow Rust standard naming conventions (snake_case for variables/functions, CamelCase for types)
