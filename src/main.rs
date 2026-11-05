@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use operations::Operations;
 
@@ -12,6 +12,9 @@ fn main() -> Result<()> {
     match &cli.command {
         cli::Commands::New { path } => Operations::new(path),
         cli::Commands::Preview { port } => Operations::preview(port.unwrap_or_default()),
-        cli::Commands::Publish { rebuild } => Operations::publish(*rebuild),
+        cli::Commands::Publish { rebuild } => {
+            let root = std::env::current_dir().context("Failed to get current directory")?;
+            Operations::publish(&root, *rebuild)
+        }
     }
 }

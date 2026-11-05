@@ -53,9 +53,14 @@ impl Operations {
         Ok(())
     }
 
-    pub fn publish(_rebuild: bool) -> Result<(), anyhow::Error> {
-        let config_str = fs::read_to_string(CONFIG_FILE_NAME)
-            .context("Failed to read config file. Are we in the right directory?")?;
+    pub fn publish(root: &Path, _rebuild: bool) -> Result<(), anyhow::Error> {
+        let config_path = root.join(CONFIG_FILE_NAME);
+        let config_str = fs::read_to_string(&config_path).with_context(|| {
+            format!(
+                "Failed to read config file at {:?}. Are we in the right directory?",
+                config_path
+            )
+        })?;
         let config: Config =
             toml::from_str(&config_str).context("Failed to parse config. Is it valid TOML?")?;
 
@@ -65,7 +70,10 @@ impl Operations {
         md_options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
         md_options.insert(pulldown_cmark::Options::ENABLE_TABLES);
 
-        for entry in walkdir::WalkDir::new(&config.source) {
+        let source_dir = root.join(&config.source);
+        let output_dir = root.join(&config.output);
+
+        for entry in walkdir::WalkDir::new(&source_dir) {
             let dir_entry = entry.context("Failed to get result from walkdir entry")?;
             let extension = dir_entry.path().extension().unwrap_or_default();
 
@@ -84,7 +92,7 @@ impl Operations {
                     format!("Failed to parse frontmatter for {:?}", dir_entry.path())
                 })?;
 
-                let content_parser = pulldown_cmark::Parser::new_ext(&markdown, md_options);
+                let content_parser = pulldown_cmark::Parser::new_ext(markdown, md_options);
 
                 let mut html = String::with_capacity(markdown.len());
                 pulldown_cmark::html::push_html(&mut html, content_parser);
@@ -114,8 +122,8 @@ impl Operations {
                     .join("index.html");
                 let output_path = Self::rebase_path(
                     &indexed_output_file_path,
-                    &config.source,
-                    &config.output,
+                    &source_dir,
+                    &output_dir,
                     Some("html"),
                 )?;
 
@@ -365,11 +373,7 @@ tags = []
 
         fs::write(&markdown, content).expect("Failed to write test markdown");
 
-        let old_pwd = std::env::current_dir().expect("Failed to get PWD");
-        std::env::set_current_dir(&target_dir).expect("Failed to set PWD");
-
-        Operations::publish(false).expect("Failed publish operation");
-        std::env::set_current_dir(&old_pwd).expect("Failed to set PWD");
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
 
         print_dir(&target_dir).expect("Error during iterating over target dir");
 
@@ -408,11 +412,7 @@ slug = 'custom-test-post'
 
         fs::write(&markdown, content).expect("Failed to write test markdown");
 
-        let old_pwd = std::env::current_dir().expect("Failed to get PWD");
-        std::env::set_current_dir(&target_dir).expect("Failed to set PWD");
-
-        Operations::publish(false).expect("Failed publish operation");
-        std::env::set_current_dir(&old_pwd).expect("Failed to set PWD");
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
 
         print_dir(&target_dir).expect("Error during iterating over target dir");
 
