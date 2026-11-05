@@ -107,10 +107,11 @@ impl Theme {
         })
     }
 
-    pub fn copy_assets(&self, output_dir: &Path) -> Result<()> {
+    pub fn copy_assets(&self, output_dir: &Path) -> Result<Vec<PathBuf>> {
         let assets_dir = self.dir.join(ASSETS_DIR);
+        let mut copied = Vec::new();
         if !assets_dir.is_dir() {
-            return Ok(());
+            return Ok(copied);
         }
 
         let output_assets_dir = output_dir.join(ASSETS_DIR);
@@ -135,10 +136,11 @@ impl Theme {
                         destination
                     )
                 })?;
+                copied.push(destination);
             }
         }
 
-        Ok(())
+        Ok(copied)
     }
 
     pub fn write_starter(dir: &Path) -> Result<()> {

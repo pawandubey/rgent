@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::Debug,
     fs,
     path::{Path, PathBuf},
@@ -8,6 +9,7 @@ use anyhow::{bail, Context, Result};
 use chrono::NaiveDate;
 
 use crate::{
+    assets::ContentAssets,
     config::Config,
     dates::DatePattern,
     excerpt::{self, EXCERPT_LENGTH},
@@ -190,13 +192,25 @@ impl Operations {
         let walker = walkdir::WalkDir::new(&source_dir)
             .into_iter()
             .filter_entry(|entry| {
-                !excluded_dirs
-                    .iter()
-                    .any(|dir| entry.path().starts_with(dir))
+                (entry.depth() == 0 || !ContentAssets::is_hidden(entry.path()))
+                    && !excluded_dirs
+                        .iter()
+                        .any(|dir| entry.path().starts_with(dir))
             });
+        let files: Vec<walkdir::DirEntry> = walker
+            .collect::<Result<_, _>>()
+            .with_context(|| format!("Failed to read content directory {:?}", source_dir))?;
+        let content_assets = ContentAssets::new(
+            &source_dir,
+            &output_dir,
+            files
+                .iter()
+                .filter(|file| file.path().is_file() && ContentAssets::is_asset(file.path()))
+                .map(|file| file.path().to_path_buf())
+                .collect(),
+        )?;
 
-        for entry in walker {
-            let dir_entry = entry.context("Failed to get result from walkdir entry")?;
+        for dir_entry in &files {
             let extension = dir_entry.path().extension().unwrap_or_default();
 
             if dir_entry.file_type().is_file() && extension == "md" {
@@ -219,6 +233,7 @@ impl Operations {
                     &parts.body,
                     md_options,
                     highlighter.as_ref(),
+                    &content_assets,
                     dir_entry.path(),
                 )?;
                 let (excerpt_html, has_more) = match parts.excerpt {
@@ -227,6 +242,7 @@ impl Operations {
                             excerpt_markdown,
                             md_options,
                             highlighter.as_ref(),
+                            &content_assets,
                             dir_entry.path(),
                         )?,
                         true,
@@ -345,8 +361,10 @@ impl Operations {
             .collect();
         nav_pages.sort_by(|a, b| a.title.cmp(&b.title));
 
+        let mut generated = HashSet::new();
         for entry in &entries {
             Self::write_entry(&theme, &config, entry, &nav_pages)?;
+            generated.insert(entry.output_path.clone());
         }
 
         let mut posts: Vec<&Entry> = entries
@@ -359,12 +377,31 @@ impl Operations {
                 .then_with(|| a.title.cmp(&b.title))
         });
 
-        Self::write_index_pages(&theme, &config, &posts, &nav_pages, &output_dir)?;
+        generated.extend(Self::write_index_pages(
+            &theme,
+            &config,
+            &posts,
+            &nav_pages,
+            &output_dir,
+        )?);
         if config.render_tags {
-            Self::write_tag_pages(&theme, &config, &posts, &nav_pages, &output_dir)?;
+            generated.extend(Self::write_tag_pages(
+                &theme,
+                &config,
+                &posts,
+                &nav_pages,
+                &output_dir,
+            )?);
         }
-        Self::write_feed(&theme, &config, &posts, &nav_pages, &output_dir)?;
-        theme.copy_assets(&output_dir)?;
+        generated.insert(Self::write_feed(
+            &theme,
+            &config,
+            &posts,
+            &nav_pages,
+            &output_dir,
+        )?);
+        generated.extend(theme.copy_assets(&output_dir)?);
+        content_assets.copy(&generated)?;
         Ok(())
     }
 
@@ -372,9 +409,11 @@ impl Operations {
         markdown: &str,
         options: pulldown_cmark::Options,
         highlighter: Option<&Highlighter>,
+        content_assets: &ContentAssets,
         source: &Path,
     ) -> Result<String> {
-        let parser = pulldown_cmark::Parser::new_ext(markdown, options);
+        let parser = pulldown_cmark::Parser::new_ext(markdown, options)
+            .map(|event| content_assets.rewrite_event(event, source));
         let mut html = String::with_capacity(markdown.len());
 
         match highlighter {
@@ -417,7 +456,7 @@ impl Operations {
         posts: &[&Entry],
         nav_pages: &[&Entry],
         output_dir: &Path,
-    ) -> Result<()> {
+    ) -> Result<Vec<PathBuf>> {
         Self::write_paginated(
             theme,
             INDEX_LAYOUT,
@@ -439,7 +478,7 @@ impl Operations {
         posts: &[&Entry],
         nav_pages: &[&Entry],
         output_dir: &Path,
-    ) -> Result<()> {
+    ) -> Result<Vec<PathBuf>> {
         if !theme.has_layout(TAG_INDEX_LAYOUT) {
             bail!(
                 "`rendertags` is enabled, but the theme has no `{}.html` layout for tag pages",
@@ -449,27 +488,30 @@ impl Operations {
 
         let groups = taxonomy::group_by_tag(posts, |post| &post.tags)?;
         let all_tags: Vec<TagLink> = groups.iter().map(|group| group.tag.clone()).collect();
+        let mut written = Vec::new();
 
         for group in &groups {
-            Self::write_paginated(
-                theme,
-                TAG_INDEX_LAYOUT,
-                &group.posts,
-                config.posts_per_page,
-                &group.tag.url,
-                &output_dir.join(TAGS_DIR).join(&group.tag.slug),
-                |index| TagIndexLayoutData {
-                    config,
-                    tag: &group.tag,
-                    index,
-                    tags: &all_tags,
-                    nav_pages,
-                },
-            )
-            .with_context(|| format!("Failed to write pages for tag {:?}", group.tag.name))?;
+            written.extend(
+                Self::write_paginated(
+                    theme,
+                    TAG_INDEX_LAYOUT,
+                    &group.posts,
+                    config.posts_per_page,
+                    &group.tag.url,
+                    &output_dir.join(TAGS_DIR).join(&group.tag.slug),
+                    |index| TagIndexLayoutData {
+                        config,
+                        tag: &group.tag,
+                        index,
+                        tags: &all_tags,
+                        nav_pages,
+                    },
+                )
+                .with_context(|| format!("Failed to write pages for tag {:?}", group.tag.name))?,
+            );
         }
 
-        Ok(())
+        Ok(written)
     }
 
     fn write_paginated<'a, D: Serialize>(
@@ -480,7 +522,8 @@ impl Operations {
         base_url: &str,
         dir: &Path,
         layout_data: impl Fn(IndexPage<'a, &'a Entry>) -> D,
-    ) -> Result<()> {
+    ) -> Result<Vec<PathBuf>> {
+        let mut written = Vec::new();
         for index in pagination::paginate(posts, per_page, base_url) {
             let output_path = pagination::page_output_path(dir, index.current_page);
             let current_page = index.current_page;
@@ -501,9 +544,10 @@ impl Operations {
                     layout, current_page, output_path
                 )
             })?;
+            written.push(output_path);
         }
 
-        Ok(())
+        Ok(written)
     }
 
     fn write_feed(
@@ -512,7 +556,7 @@ impl Operations {
         posts: &[&Entry],
         nav_pages: &[&Entry],
         output_dir: &Path,
-    ) -> Result<()> {
+    ) -> Result<PathBuf> {
         let base_url = config.site.base_url.trim_end_matches('/');
         let site_url = format!("{}/", base_url);
         let feed_url = format!("{}/{}", base_url, FEED_FILE);
@@ -555,7 +599,8 @@ impl Operations {
 
         let output_path = output_dir.join(FEED_FILE);
         fs::write(&output_path, xml)
-            .with_context(|| format!("Failed to write feed to {:?}", output_path))
+            .with_context(|| format!("Failed to write feed to {:?}", output_path))?;
+        Ok(output_path)
     }
 
     fn url_for_dir(dir: &Path, output_dir: &Path) -> Result<String> {
@@ -1304,6 +1349,93 @@ slug = 'custom-test-post'
             error
         );
         temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_copies_content_assets_and_rewrites_references() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        fs::write(
+            target_dir.child("themes/wells/post.html"),
+            "{{{post.content}}}",
+        )
+        .unwrap();
+        fs::write(
+            target_dir.child("themes/wells/index.html"),
+            "{{#each index.posts}}{{{excerpt}}}{{/each}}",
+        )
+        .unwrap();
+
+        fs::create_dir_all(target_dir.child("content/notes/img")).unwrap();
+        fs::write(target_dir.child("content/notes/img/diagram.png"), "png").unwrap();
+        fs::write(target_dir.child("content/report.pdf"), "pdf").unwrap();
+        fs::write(target_dir.child("content/notes/.DS_Store"), "junk").unwrap();
+        fs::write(target_dir.child("content/drafts/secret.png"), "secret").unwrap();
+        fs::write(
+            target_dir.child("content/notes/tip.md"),
+            "title = 'Tip'\ndate = '2024 01 01'\n\n#####\n\n![Diagram](img/diagram.png)\n\n##more##\n\n[Report](../report.pdf)\n",
+        )
+        .unwrap();
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        target_dir
+            .child("output/notes/img/diagram.png")
+            .assert(predicate::str::diff("png"));
+        target_dir
+            .child("output/report.pdf")
+            .assert(predicate::str::diff("pdf"));
+        target_dir
+            .child("output/notes/.DS_Store")
+            .assert(predicate::path::missing());
+        target_dir
+            .child("output/drafts")
+            .assert(predicate::path::missing());
+        target_dir
+            .child("output/notes/tip.md")
+            .assert(predicate::path::missing());
+
+        let post = read_output(&target_dir, "notes/tip/index.html");
+        assert!(
+            post.contains("<img src=\"/notes/img/diagram.png\" alt=\"Diagram\" />"),
+            "{}",
+            post
+        );
+        assert!(
+            post.contains("<a href=\"/report.pdf\">Report</a>"),
+            "{}",
+            post
+        );
+        assert!(
+            read_output(&target_dir, "index.html").contains("src=\"/notes/img/diagram.png\""),
+            "excerpt should use the rewritten image URL"
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_rejects_content_assets_that_overwrite_generated_files() {
+        for (file, generated) in [
+            ("assets/style.css", "assets/style.css"),
+            ("feed.xml", "feed.xml"),
+            ("index.html", "index.html"),
+        ] {
+            let temp_dir = assert_fs::TempDir::new().unwrap();
+            let target_dir = temp_dir.child("rgent_test");
+            Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+            let path = target_dir.child("content").child(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, "mine").unwrap();
+
+            let error = Operations::publish(&target_dir, false)
+                .expect_err("Overwriting a generated file should fail");
+
+            let message = format!("{:#}", error);
+            assert!(message.contains("would overwrite"), "{}", message);
+            assert!(message.contains(generated), "{}", message);
+            temp_dir.close().unwrap();
+        }
     }
 
     #[test]

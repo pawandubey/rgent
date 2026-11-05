@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use operations::Operations;
 
+mod assets;
 mod cli;
 mod config;
 mod dates;

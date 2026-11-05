@@ -1,0 +1,1 @@
+This file sits next to the post in tophat/content/notes/ and is copied to the output as-is.
