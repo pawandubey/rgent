@@ -7,6 +7,8 @@ use std::{
 use anyhow::{bail, Context, Result};
 use pulldown_cmark::{CowStr, Event, Tag};
 
+const PUBLISHED_HIDDEN_FILES: &[&str] = &[".nojekyll"];
+
 pub struct ContentAssets {
     output_dir: PathBuf,
     assets: HashMap<PathBuf, Asset>,
@@ -50,7 +52,7 @@ impl ContentAssets {
     pub fn is_hidden(path: &Path) -> bool {
         path.file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with('.'))
+            .is_some_and(|name| name.starts_with('.') && !PUBLISHED_HIDDEN_FILES.contains(&name))
     }
 
     pub fn rewrite_event<'a>(&self, event: Event<'a>, source: &Path) -> Event<'a> {
@@ -360,6 +362,8 @@ mod test {
         assert!(!ContentAssets::is_asset(Path::new("a/post.md")));
         assert!(ContentAssets::is_hidden(Path::new("a/.DS_Store")));
         assert!(ContentAssets::is_hidden(Path::new(".git")));
+        assert!(ContentAssets::is_hidden(Path::new("a/.nojekyll.bak")));
+        assert!(!ContentAssets::is_hidden(Path::new("content/.nojekyll")));
         assert!(!ContentAssets::is_hidden(Path::new("a/b.png")));
     }
 }

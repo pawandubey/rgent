@@ -34,6 +34,7 @@ const PAGE_LAYOUT: &str = "page";
 const NAV_TAG: &str = "nav";
 const FEED_LAYOUT: &str = "feed";
 const TAG_INDEX_LAYOUT: &str = "tagindex";
+const NOT_FOUND_LAYOUT: &str = "404";
 
 pub struct Operations {}
 
@@ -97,6 +98,12 @@ struct TagIndexLayoutData<'a> {
     tag: &'a TagLink,
     index: IndexPage<'a, &'a Entry>,
     tags: &'a [TagLink],
+}
+
+#[derive(Serialize)]
+struct NotFoundLayoutData<'a> {
+    #[serde(flatten)]
+    site: &'a SiteData<'a>,
 }
 
 #[derive(Serialize)]
@@ -412,6 +419,9 @@ impl Operations {
             generated.extend(Self::write_tag_pages(&theme, &site, &posts, &output_dir)?);
         }
         generated.insert(Self::write_feed(&theme, &site, &posts, &output_dir)?);
+        if let Some(path) = Self::write_not_found_page(&theme, &site, &output_dir)? {
+            generated.insert(path);
+        }
         generated.extend(theme.copy_assets(&output_dir)?);
         content_assets.copy(&generated)?;
         Ok(())
@@ -596,6 +606,22 @@ impl Operations {
         fs::write(&output_path, xml)
             .with_context(|| format!("Failed to write feed to {:?}", output_path))?;
         Ok(output_path)
+    }
+
+    fn write_not_found_page(
+        theme: &Theme,
+        site: &SiteData,
+        output_dir: &Path,
+    ) -> Result<Option<PathBuf>> {
+        if !theme.has_layout(NOT_FOUND_LAYOUT) {
+            return Ok(None);
+        }
+
+        let rendered = theme.render(NOT_FOUND_LAYOUT, &NotFoundLayoutData { site })?;
+        let output_path = output_dir.join(format!("{}.html", NOT_FOUND_LAYOUT));
+        fs::write(&output_path, rendered)
+            .with_context(|| format!("Failed to write 404 page to {:?}", output_path))?;
+        Ok(Some(output_path))
     }
 
     fn absolute_url(base_url: &str, url: &str) -> String {
@@ -1374,6 +1400,7 @@ slug = 'custom-test-post'
         fs::write(target_dir.child("content/notes/img/diagram.png"), "png").unwrap();
         fs::write(target_dir.child("content/report.pdf"), "pdf").unwrap();
         fs::write(target_dir.child("content/notes/.DS_Store"), "junk").unwrap();
+        fs::write(target_dir.child("content/.nojekyll"), "").unwrap();
         fs::write(target_dir.child("content/drafts/secret.png"), "secret").unwrap();
         fs::write(
             target_dir.child("content/notes/tip.md"),
@@ -1392,6 +1419,9 @@ slug = 'custom-test-post'
         target_dir
             .child("output/notes/.DS_Store")
             .assert(predicate::path::missing());
+        target_dir
+            .child("output/.nojekyll")
+            .assert(predicate::path::is_file());
         target_dir
             .child("output/drafts")
             .assert(predicate::path::missing());
@@ -1600,6 +1630,32 @@ slug = 'custom-test-post'
         target_dir
             .child("output/post")
             .assert(predicate::path::missing());
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_renders_optional_404_layout() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+        target_dir
+            .child("output/404.html")
+            .assert(predicate::path::missing());
+
+        fs::write(
+            target_dir.child("themes/wells/404.html"),
+            "Not found on {{config.site.name}}|{{#each social_links}}{{network}}{{/each}}",
+        )
+        .unwrap();
+        replace_in_config(&target_dir, "github = ''", "github = 'pawandubey'");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+        assert_eq!(
+            "Not found on New Rgent Site|github",
+            read_output(&target_dir, "404.html")
+        );
         temp_dir.close().unwrap();
     }
 

@@ -74,28 +74,26 @@ pub fn summarize(markdown: &str, options: Options, limit: usize) -> Summary {
 }
 
 fn find_marker(markdown: &str, options: Options) -> Option<Range<usize>> {
-    let mut paragraph: Option<Range<usize>> = None;
-    let mut paragraph_text = String::new();
+    let mut text_ranges = Vec::new();
+    let mut code_block_depth = 0usize;
 
     for (event, range) in Parser::new_ext(markdown, options).into_offset_iter() {
         match event {
-            Event::Start(Tag::Paragraph) => {
-                paragraph = Some(range);
-                paragraph_text.clear();
-            }
-            Event::Text(text) if paragraph.is_some() => paragraph_text.push_str(&text),
-            Event::End(Tag::Paragraph) => {
-                if paragraph_text.trim() == MORE_MARKER {
-                    return paragraph;
-                }
-                paragraph = None;
-            }
-            _ if paragraph.is_some() => paragraph_text.push('\0'),
+            Event::Start(Tag::CodeBlock(_)) => code_block_depth += 1,
+            Event::End(Tag::CodeBlock(_)) => code_block_depth = code_block_depth.saturating_sub(1),
+            Event::Text(_) if code_block_depth == 0 => text_ranges.push(range),
             _ => {}
         }
     }
 
-    None
+    markdown
+        .match_indices(MORE_MARKER)
+        .map(|(start, marker)| start..start + marker.len())
+        .find(|marker| {
+            text_ranges
+                .iter()
+                .any(|text| text.start <= marker.start && marker.start < text.end)
+        })
 }
 
 fn truncate_at_word(text: &str, limit: usize) -> (String, bool) {
@@ -136,7 +134,36 @@ mod test {
         let parts = split_at_marker(markdown, Options::empty());
 
         assert_eq!(Some("First paragraph."), parts.excerpt);
-        assert_eq!("First paragraph.\n\n\nRest of the post.\n", parts.body);
+        assert_eq!("First paragraph.\n\n\n\nRest of the post.\n", parts.body);
+    }
+
+    #[test]
+    fn test_split_at_inline_marker() {
+        let markdown = "It is _hard_ to make sense of.##more## It is a wonder.\n\nMore text.\n";
+
+        let parts = split_at_marker(markdown, Options::empty());
+
+        assert_eq!(Some("It is _hard_ to make sense of."), parts.excerpt);
+        assert_eq!(
+            "It is _hard_ to make sense of. It is a wonder.\n\nMore text.\n",
+            parts.body
+        );
+    }
+
+    #[test]
+    fn test_split_at_marker_ending_a_paragraph() {
+        let parts = split_at_marker("First bit.##more##\n\nSecond bit.\n", Options::empty());
+
+        assert_eq!(Some("First bit."), parts.excerpt);
+        assert_eq!("First bit.\n\nSecond bit.\n", parts.body);
+    }
+
+    #[test]
+    fn test_only_first_marker_splits() {
+        let parts = split_at_marker("One.##more## Two.##more## Three.\n", Options::empty());
+
+        assert_eq!(Some("One."), parts.excerpt);
+        assert_eq!("One. Two.##more## Three.\n", parts.body);
     }
 
     #[test]
@@ -148,15 +175,17 @@ mod test {
     }
 
     #[test]
-    fn test_marker_inside_code_or_text_is_ignored() {
+    fn test_marker_inside_code_or_html_is_ignored() {
         let markdown = indoc! {"
             ```
             ##more##
             ```
 
-            This mentions ##more## inline.
+                ##more## in an indented block
 
-            `##more##`
+            This mentions `##more##` in inline code.
+
+            <div>##more##</div>
         "};
 
         let parts = split_at_marker(markdown, Options::empty());
