@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::{config::Config, preview};
+use crate::{config::Config, preview, theme::Theme};
 
 use itertools::Itertools;
 
@@ -14,6 +14,7 @@ const CONFIG_FILE_NAME: &str = "rgent.toml";
 const CONTENT_AND_DRAFTS_DIR: &str = "content/drafts";
 const OUTPUT_DIR: &str = "output";
 const THEMES_DIR: &str = "themes";
+const DEFAULT_LAYOUT: &str = "post";
 
 pub struct Operations {}
 
@@ -29,6 +30,23 @@ pub struct Frontmatter {
     slug: Option<String>,
 }
 
+#[derive(Serialize)]
+struct LayoutData<'a> {
+    config: &'a Config,
+    post: PostData<'a>,
+}
+
+#[derive(Serialize)]
+struct PostData<'a> {
+    title: &'a str,
+    author: &'a str,
+    date: &'a str,
+    tags: &'a [String],
+    slug: &'a str,
+    permalink: String,
+    content: &'a str,
+}
+
 impl Operations {
     pub fn new(path: &PathBuf) -> Result<()> {
         // TODO: Canonicalize path for more consistent path representation in logs?
@@ -40,9 +58,13 @@ impl Operations {
         fs::create_dir(path.join(OUTPUT_DIR)).context("Failed to create output directory")?;
         fs::create_dir(path.join(THEMES_DIR)).context("Failed to create themes directory")?;
 
+        let config = Config::default();
+        Theme::write_starter(&path.join(THEMES_DIR).join(&config.theme))
+            .context("Failed to create starter theme")?;
+
         let path_to_config = path.join(CONFIG_FILE_NAME);
-        let serialized_config = toml::to_string_pretty(&Config::default())
-            .context("Failed to serialize default config")?;
+        let serialized_config =
+            toml::to_string_pretty(&config).context("Failed to serialize default config")?;
         fs::write(&path_to_config, serialized_config).context("Failed to write to config file")?;
 
         println!("Initialized new site config at {:?}", path_to_config);
@@ -70,6 +92,7 @@ impl Operations {
 
         let source_dir = root.join(&config.source);
         let output_dir = root.join(&config.output);
+        let theme = Theme::load(&root.join(THEMES_DIR).join(&config.theme))?;
 
         for entry in walkdir::WalkDir::new(&source_dir) {
             let dir_entry = entry.context("Failed to get result from walkdir entry")?;
@@ -142,7 +165,29 @@ impl Operations {
                     )
                 })?;
 
-                fs::write(&output_path, html).with_context(|| {
+                let slug = slug.trim();
+                let layout_data = LayoutData {
+                    config: &config,
+                    post: PostData {
+                        title: &frontmatter.title,
+                        author: &frontmatter.author,
+                        date: &frontmatter.date,
+                        tags: &frontmatter.tags,
+                        slug,
+                        permalink: format!(
+                            "{}/{}/",
+                            config.site.base_url.trim_end_matches('/'),
+                            slug
+                        ),
+                        content: &html,
+                    },
+                };
+                let layout = frontmatter.layout.as_deref().unwrap_or(DEFAULT_LAYOUT);
+                let rendered = theme
+                    .render(layout, &layout_data)
+                    .with_context(|| format!("Failed to render {:?}", dir_entry.path()))?;
+
+                fs::write(&output_path, rendered).with_context(|| {
                     format!(
                         "Failed to write generated HTML for: {:?} to {:?}",
                         dir_entry.path(),
@@ -158,6 +203,8 @@ impl Operations {
                 // TODO: Copy over all assets
             }
         }
+
+        theme.copy_assets(&output_dir)?;
         Ok(())
     }
 
@@ -232,6 +279,10 @@ mod test {
         target_dir
             .child("themes/")
             .assert(predicate::path::exists().and(predicate::path::is_dir()));
+
+        target_dir
+            .child("themes/wells/post.html")
+            .assert(predicate::path::is_file());
 
         let contents = fs::read_to_string(target_dir.child("rgent.toml"))
             .expect("Failed to read test config file");
@@ -397,7 +448,12 @@ tags = []
 
         let contents = fs::read_to_string(target_dir.child("output/test-post/index.html"))
             .expect("Failed to read file");
-        assert_eq!("<h1>Hello world</h1>", contents.trim());
+        assert!(contents.contains("<h1>Hello world</h1>"), "{}", contents);
+        assert!(
+            contents.contains("<title>Test post | New Rgent Site</title>"),
+            "{}",
+            contents
+        );
         temp_dir.close().expect("Failed to delete temp directory")
     }
 
@@ -436,8 +492,93 @@ slug = 'custom-test-post'
 
         let contents = fs::read_to_string(target_dir.child("output/custom-test-post/index.html"))
             .expect("Failed to read file");
-        assert_eq!("<h1>Hello world</h1>", contents.trim());
+        assert!(contents.contains("<h1>Hello world</h1>"), "{}", contents);
+        assert!(
+            contents.contains("<title>Test post | New Rgent Site</title>"),
+            "{}",
+            contents
+        );
 
+        temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    #[test]
+    fn test_publish_uses_frontmatter_layout() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        fs::write(
+            target_dir.child("themes/wells/gallery.html"),
+            "{{config.site.name}}|{{post.title}}|{{post.permalink}}|{{#each post.tags}}{{this}},{{/each}}|{{{post.content}}}",
+        )
+        .expect("Failed to write layout");
+
+        let content = indoc! {r#"
+            title = 'Holiday <Pics>'
+            author = 'Pawan Dubey'
+            date = '2024-12-28'
+            tags = ['travel', 'photos']
+            layout = 'gallery'
+            slug = 'holiday'
+
+            #####
+
+            *Sunny*"#};
+        fs::write(target_dir.child("content/holiday.md"), content)
+            .expect("Failed to write test markdown");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let contents = fs::read_to_string(target_dir.child("output/holiday/index.html"))
+            .expect("Failed to read file");
+        assert_eq!(
+            "New Rgent Site|Holiday &lt;Pics&gt;|https://blog.example.com/holiday/|travel,photos,|<p><em>Sunny</em></p>",
+            contents.trim()
+        );
+        temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    #[test]
+    fn test_publish_copies_theme_assets() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        target_dir
+            .child("output/assets/style.css")
+            .assert(predicate::path::is_file());
+        temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    #[test]
+    fn test_publish_fails_for_unknown_layout() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        let content = indoc! {r#"
+            title = 'Test post'
+            author = 'Pawan Dubey'
+            date = '2024-12-28'
+            tags = []
+            layout = 'missing'
+
+            #####
+
+            # Hello world"#};
+        fs::write(target_dir.child("content/test.md"), content)
+            .expect("Failed to write test markdown");
+
+        let error = Operations::publish(&target_dir, false)
+            .expect_err("Publishing with an unknown layout should fail");
+        assert!(
+            format!("{:#}", error).contains("no layout named \"missing\""),
+            "{:#}",
+            error
+        );
         temp_dir.close().expect("Failed to delete temp directory")
     }
 

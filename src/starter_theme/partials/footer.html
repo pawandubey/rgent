@@ -1,0 +1,10 @@
+  <footer class="site-footer">
+    <p>&copy; {{config.site.author}}</p>
+    <ul class="social">
+      {{#if config.social.github}}<li><a href="https://github.com/{{config.social.github}}">GitHub</a></li>{{/if}}
+      {{#if config.social.twitter}}<li><a href="https://twitter.com/{{config.social.twitter}}">Twitter</a></li>{{/if}}
+      {{#if config.social.mastodon}}<li><a href="{{config.social.mastodon}}">Mastodon</a></li>{{/if}}
+    </ul>
+  </footer>
+</body>
+</html>

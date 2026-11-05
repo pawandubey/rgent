@@ -1,0 +1,41 @@
+body {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+  color: #222;
+}
+
+a {
+  color: #0b62a4;
+}
+
+.site-header {
+  margin-bottom: 2rem;
+}
+
+.site-name {
+  font-size: 1.5rem;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.site-tagline,
+.post-meta,
+.site-footer {
+  color: #666;
+}
+
+.post-tags,
+.social {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.site-footer {
+  margin-top: 3rem;
+  border-top: 1px solid #ddd;
+}

@@ -1,0 +1,16 @@
+{{> header}}
+  <main>
+    <article class="post">
+      <h1 class="post-title">{{post.title}}</h1>
+      <p class="post-meta">{{post.date}} &middot; {{post.author}}</p>
+      <div class="post-content">
+        {{{post.content}}}
+      </div>
+      {{#if post.tags}}
+      <ul class="post-tags">
+        {{#each post.tags}}<li>{{this}}</li>{{/each}}
+      </ul>
+      {{/if}}
+    </article>
+  </main>
+{{> footer}}

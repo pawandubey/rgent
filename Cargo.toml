@@ -14,6 +14,7 @@ assert_fs = "1.0.10"
 bytes = "1.12.1"
 clap = { version = "4.0.32", features = ["derive"] }
 exitcode = "1.1.2"
+handlebars = "6.4.4"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["server", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio"] }
@@ -26,3 +27,6 @@ serde = { version = "1.0.151", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "fs", "macros", "io-util", "time"] }
 toml = "0.5.10"
 walkdir = "2.3.2"
+
+[dev-dependencies]
+serde_json = "1.0.154"

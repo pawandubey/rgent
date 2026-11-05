@@ -12,7 +12,7 @@ pub struct Config {
     #[serde(rename = "outputdate")]
     output_date_format: String,
 
-    theme: String,
+    pub theme: String,
 
     #[serde(rename = "headerimage")]
     header_image: String,
@@ -27,7 +27,7 @@ pub struct Config {
 
     social: SocialConfig,
 
-    site: SiteConfig,
+    pub site: SiteConfig,
 }
 
 impl Default for Config {
@@ -81,7 +81,7 @@ pub struct SiteConfig {
     author: String,
 
     #[serde(rename = "baseurl")]
-    base_url: String,
+    pub base_url: String,
 }
 
 #[cfg(test)]

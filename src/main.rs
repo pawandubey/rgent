@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod operations;
 mod preview;
+mod theme;
 
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();

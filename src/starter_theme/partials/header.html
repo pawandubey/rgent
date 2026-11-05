@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{post.title}} | {{config.site.name}}</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="site-name" href="/">{{config.site.name}}</a>
+    {{#if config.site.tagline}}<p class="site-tagline">{{config.site.tagline}}</p>{{/if}}
+  </header>
