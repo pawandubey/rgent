@@ -23,7 +23,7 @@ pub struct Config {
     #[serde(rename = "rendertags", default)]
     render_tags: bool,
 
-    preview: PreviewConfig,
+    pub preview: PreviewConfig,
 
     social: SocialConfig,
 
@@ -60,7 +60,7 @@ impl Default for Config {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PreviewConfig {
-    port: u16,
+    pub port: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]

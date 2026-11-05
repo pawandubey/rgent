@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::config::Config;
+use crate::{config::Config, preview};
 
 use itertools::Itertools;
 
@@ -49,20 +49,18 @@ impl Operations {
         Ok(())
     }
 
-    pub fn preview(_port: u16) -> Result<()> {
-        Ok(())
+    pub fn preview(root: &Path, port: Option<u16>) -> Result<()> {
+        Self::publish(root, false)?;
+
+        let config = Self::load_config(root)?;
+        let port = port.unwrap_or(config.preview.port);
+        let output_dir = root.join(&config.output);
+
+        preview::serve(output_dir, port)
     }
 
     pub fn publish(root: &Path, _rebuild: bool) -> Result<(), anyhow::Error> {
-        let config_path = root.join(CONFIG_FILE_NAME);
-        let config_str = fs::read_to_string(&config_path).with_context(|| {
-            format!(
-                "Failed to read config file at {:?}. Are we in the right directory?",
-                config_path
-            )
-        })?;
-        let config: Config =
-            toml::from_str(&config_str).context("Failed to parse config. Is it valid TOML?")?;
+        let config = Self::load_config(root)?;
 
         let mut md_options = pulldown_cmark::Options::empty();
         md_options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
@@ -161,6 +159,22 @@ impl Operations {
             }
         }
         Ok(())
+    }
+
+    fn load_config(root: &Path) -> Result<Config> {
+        let config_path = root.join(CONFIG_FILE_NAME);
+        let config_str = fs::read_to_string(&config_path).with_context(|| {
+            format!(
+                "Failed to read config file at {:?}. Are we in the right directory?",
+                config_path
+            )
+        })?;
+        toml::from_str(&config_str).with_context(|| {
+            format!(
+                "Failed to parse config {:?}. Is it valid TOML?",
+                config_path
+            )
+        })
     }
 
     /**
