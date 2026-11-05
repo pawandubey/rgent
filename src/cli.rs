@@ -29,4 +29,11 @@ pub enum Commands {
         #[arg(short, long)]
         port: Option<u16>,
     },
+    #[command(
+        about = "Print the syntax highlighting CSS for a theme, based on the [highlight] section of its theme.toml."
+    )]
+    HighlightCss {
+        #[arg(help = "Path to the theme directory, e.g. themes/wells.")]
+        theme_dir: PathBuf,
+    },
 }

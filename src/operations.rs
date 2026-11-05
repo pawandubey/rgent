@@ -10,6 +10,7 @@ use chrono::NaiveDate;
 use crate::{
     config::Config,
     dates::DatePattern,
+    highlight::Highlighter,
     pagination::{self, IndexPage},
     preview,
     theme::Theme,
@@ -140,6 +141,11 @@ impl Operations {
         let source_dir = root.join(&config.source);
         let output_dir = root.join(&config.output);
         let theme = Theme::load(&root.join(THEMES_DIR).join(&config.theme))?;
+        let highlighter = theme
+            .highlight_themes()
+            .cloned()
+            .map(Highlighter::new)
+            .transpose()?;
         let input_date =
             DatePattern::new(&config.input_date_format).context("Invalid `inputdate` in config")?;
         let output_date = DatePattern::new(&config.output_date_format)
@@ -181,7 +187,15 @@ impl Operations {
                 let content_parser = pulldown_cmark::Parser::new_ext(markdown, md_options);
 
                 let mut html = String::with_capacity(markdown.len());
-                pulldown_cmark::html::push_html(&mut html, content_parser);
+                match &highlighter {
+                    Some(highlighter) => pulldown_cmark::html::push_html(
+                        &mut html,
+                        highlighter
+                            .highlight_events(content_parser, dir_entry.path())?
+                            .into_iter(),
+                    ),
+                    None => pulldown_cmark::html::push_html(&mut html, content_parser),
+                }
 
                 // let title = &frontmatter.title;
 
@@ -385,6 +399,19 @@ impl Operations {
         } else {
             Ok(format!("/{}/", segments))
         }
+    }
+
+    pub fn highlight_css(theme_dir: &Path) -> Result<()> {
+        let theme = Theme::load(theme_dir)?;
+        let themes = theme.highlight_themes().with_context(|| {
+            format!(
+                "Theme {:?} has no `[highlight]` section in its theme.toml",
+                theme_dir
+            )
+        })?;
+
+        print!("{}", Highlighter::new(themes.clone())?.stylesheet()?);
+        Ok(())
     }
 
     fn load_config(root: &Path) -> Result<Config> {
@@ -790,6 +817,67 @@ slug = 'custom-test-post'
             .unwrap_or_else(|e| panic!("Failed to read output/{}: {}", path, e))
             .trim()
             .to_string()
+    }
+
+    #[test]
+    fn test_publish_highlights_code_blocks_with_theme_config() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        fs::write(
+            target_dir.child("themes/wells/post.html"),
+            "{{{post.content}}}",
+        )
+        .unwrap();
+
+        let path = target_dir.child("content/code.md");
+        fs::write(
+            &path,
+            "title = 'Code'\ndate = '2024 01 01'\n\n#####\n\n```rust\nfn main() {}\n```\n",
+        )
+        .unwrap();
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let contents = read_output(&target_dir, "code/index.html");
+        assert!(
+            contents.starts_with("<pre class=\"giallo hl-l-code hl-d-code\""),
+            "{}",
+            contents
+        );
+        assert!(contents.contains("data-lang=\"rust\""), "{}", contents);
+        assert_eq!(
+            include_str!("starter_theme/assets/highlight.css"),
+            fs::read_to_string(target_dir.child("output/assets/highlight.css")).unwrap()
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_publish_leaves_code_blocks_plain_without_theme_config() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        fs::remove_file(target_dir.child("themes/wells/theme.toml")).unwrap();
+        fs::write(
+            target_dir.child("themes/wells/post.html"),
+            "{{{post.content}}}",
+        )
+        .unwrap();
+
+        fs::write(
+            target_dir.child("content/code.md"),
+            "title = 'Code'\ndate = '2024 01 01'\n\n#####\n\n```rust\nfn main() {}\n```\n",
+        )
+        .unwrap();
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        assert_eq!(
+            "<pre><code class=\"language-rust\">fn main() {}\n</code></pre>",
+            read_output(&target_dir, "code/index.html")
+        );
+        temp_dir.close().unwrap();
     }
 
     #[test]

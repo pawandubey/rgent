@@ -57,3 +57,11 @@ a {
   padding: 0;
   list-style: none;
 }
+
+pre.giallo {
+  padding: 1rem;
+  overflow-x: auto;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}

@@ -5,6 +5,7 @@ use operations::Operations;
 mod cli;
 mod config;
 mod dates;
+mod highlight;
 mod operations;
 mod pagination;
 mod preview;
@@ -17,6 +18,7 @@ fn main() -> Result<()> {
         cli::Commands::New { path } => Operations::new(path),
         cli::Commands::Preview { port } => Operations::preview(&current_dir()?, *port),
         cli::Commands::Publish { rebuild } => Operations::publish(&current_dir()?, *rebuild),
+        cli::Commands::HighlightCss { theme_dir } => Operations::highlight_css(theme_dir),
     }
 }
 

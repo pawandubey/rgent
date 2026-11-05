@@ -7,11 +7,15 @@ use anyhow::{bail, Context, Result};
 use handlebars::Handlebars;
 use serde::Serialize;
 
+use crate::highlight::{self, HighlightThemes};
+
 const LAYOUT_EXTENSION: &str = "html";
+const THEME_CONFIG_FILE: &str = "theme.toml";
 const PARTIALS_DIR: &str = "partials";
 const ASSETS_DIR: &str = "assets";
 
 const STARTER_THEME: &[(&str, &str)] = &[
+    ("theme.toml", include_str!("starter_theme/theme.toml")),
     ("index.html", include_str!("starter_theme/index.html")),
     ("post.html", include_str!("starter_theme/post.html")),
     ("page.html", include_str!("starter_theme/page.html")),
@@ -27,11 +31,16 @@ const STARTER_THEME: &[(&str, &str)] = &[
         "assets/style.css",
         include_str!("starter_theme/assets/style.css"),
     ),
+    (
+        "assets/highlight.css",
+        include_str!("starter_theme/assets/highlight.css"),
+    ),
 ];
 
 pub struct Theme {
     dir: PathBuf,
     registry: Handlebars<'static>,
+    highlight: Option<HighlightThemes>,
 }
 
 impl Theme {
@@ -51,10 +60,24 @@ impl Theme {
             Self::register_templates(&mut registry, &partials_dir, "partial")?;
         }
 
+        let config_path = dir.join(THEME_CONFIG_FILE);
+        let highlight = if config_path.is_file() {
+            let contents = fs::read_to_string(&config_path)
+                .with_context(|| format!("Failed to read theme config {:?}", config_path))?;
+            highlight::parse_theme_config(&contents, &config_path)?
+        } else {
+            None
+        };
+
         Ok(Theme {
             dir: dir.to_path_buf(),
             registry,
+            highlight,
         })
+    }
+
+    pub fn highlight_themes(&self) -> Option<&HighlightThemes> {
+        self.highlight.as_ref()
     }
 
     pub fn render<T: Serialize>(&self, layout: &str, data: &T) -> Result<String> {
@@ -265,6 +288,55 @@ mod test {
             "body {}",
             fs::read_to_string(output_dir.child("assets/css/site.css")).unwrap()
         );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_starter_highlight_css_matches_giallo_output() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let theme_dir = temp_dir.child("theme");
+        Theme::write_starter(&theme_dir).expect("Failed to write starter theme");
+
+        let theme = Theme::load(&theme_dir).expect("Failed to load starter theme");
+        let themes = theme
+            .highlight_themes()
+            .expect("Starter theme should configure highlighting")
+            .clone();
+        let expected = crate::highlight::Highlighter::new(themes)
+            .expect("Failed to create highlighter")
+            .stylesheet()
+            .expect("Failed to generate stylesheet");
+
+        assert_eq!(
+            expected,
+            include_str!("starter_theme/assets/highlight.css"),
+            "src/starter_theme/assets/highlight.css is out of date. Regenerate it with `cargo run -- highlight-css src/starter_theme > src/starter_theme/assets/highlight.css`"
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_load_reads_highlight_config() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let theme_dir = temp_dir.child("theme");
+        fs::create_dir_all(&theme_dir).unwrap();
+        fs::write(theme_dir.child("post.html"), "post").unwrap();
+
+        assert_eq!(
+            None,
+            Theme::load(&theme_dir).unwrap().highlight_themes().cloned()
+        );
+
+        fs::write(theme_dir.child("theme.toml"), "[highlight]\ntheme = 'nord'").unwrap();
+        assert_eq!(
+            Some(HighlightThemes::Single {
+                theme: "nord".into()
+            }),
+            Theme::load(&theme_dir).unwrap().highlight_themes().cloned()
+        );
+
+        fs::write(theme_dir.child("theme.toml"), "[highlight]\nlight = 'nord'").unwrap();
+        assert!(Theme::load(&theme_dir).is_err());
         temp_dir.close().unwrap();
     }
 
