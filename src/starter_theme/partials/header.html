@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{post.title}} | {{config.site.name}}</title>
+  <title>{{#if post}}{{post.title}} | {{/if}}{{config.site.name}}</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>

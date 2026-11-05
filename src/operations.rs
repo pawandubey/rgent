@@ -6,7 +6,12 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::{config::Config, preview, theme::Theme};
+use crate::{
+    config::Config,
+    pagination::{self, IndexPage},
+    preview,
+    theme::Theme,
+};
 
 use itertools::Itertools;
 
@@ -15,6 +20,7 @@ const CONTENT_AND_DRAFTS_DIR: &str = "content/drafts";
 const OUTPUT_DIR: &str = "output";
 const THEMES_DIR: &str = "themes";
 const DEFAULT_LAYOUT: &str = "post";
+const INDEX_LAYOUT: &str = "index";
 
 pub struct Operations {}
 
@@ -33,18 +39,25 @@ pub struct Frontmatter {
 #[derive(Serialize)]
 struct LayoutData<'a> {
     config: &'a Config,
-    post: PostData<'a>,
+    post: &'a Post,
 }
 
 #[derive(Serialize)]
-struct PostData<'a> {
-    title: &'a str,
-    author: &'a str,
-    date: &'a str,
-    tags: &'a [String],
-    slug: &'a str,
+struct IndexLayoutData<'a> {
+    config: &'a Config,
+    index: IndexPage<'a, Post>,
+}
+
+#[derive(Serialize)]
+struct Post {
+    title: String,
+    author: String,
+    date: String,
+    tags: Vec<String>,
+    slug: String,
+    url: String,
     permalink: String,
-    content: &'a str,
+    content: String,
 }
 
 impl Operations {
@@ -93,6 +106,7 @@ impl Operations {
         let source_dir = root.join(&config.source);
         let output_dir = root.join(&config.output);
         let theme = Theme::load(&root.join(THEMES_DIR).join(&config.theme))?;
+        let mut posts = Vec::new();
 
         for entry in walkdir::WalkDir::new(&source_dir) {
             let dir_entry = entry.context("Failed to get result from walkdir entry")?;
@@ -165,22 +179,20 @@ impl Operations {
                     )
                 })?;
 
-                let slug = slug.trim();
+                let url = Self::url_for_dir(indexed_base_dir, &output_dir)?;
+                let post = Post {
+                    title: frontmatter.title.clone(),
+                    author: frontmatter.author.clone(),
+                    date: frontmatter.date.clone(),
+                    tags: frontmatter.tags.clone(),
+                    slug: slug.trim().to_string(),
+                    permalink: format!("{}{}", config.site.base_url.trim_end_matches('/'), url),
+                    url,
+                    content: html,
+                };
                 let layout_data = LayoutData {
                     config: &config,
-                    post: PostData {
-                        title: &frontmatter.title,
-                        author: &frontmatter.author,
-                        date: &frontmatter.date,
-                        tags: &frontmatter.tags,
-                        slug,
-                        permalink: format!(
-                            "{}/{}/",
-                            config.site.base_url.trim_end_matches('/'),
-                            slug
-                        ),
-                        content: &html,
-                    },
+                    post: &post,
                 };
                 let layout = frontmatter.layout.as_deref().unwrap_or(DEFAULT_LAYOUT);
                 let rendered = theme
@@ -201,11 +213,63 @@ impl Operations {
                 */
                 // TODO: Also write posts to dir/index.html
                 // TODO: Copy over all assets
+
+                posts.push(post);
             }
         }
 
+        Self::write_index_pages(&theme, &config, &mut posts, &output_dir)?;
         theme.copy_assets(&output_dir)?;
         Ok(())
+    }
+
+    fn write_index_pages(
+        theme: &Theme,
+        config: &Config,
+        posts: &mut [Post],
+        output_dir: &Path,
+    ) -> Result<()> {
+        posts.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.title.cmp(&b.title)));
+
+        for index in pagination::paginate(posts, config.posts_per_page) {
+            let output_path = pagination::page_output_path(output_dir, index.current_page);
+            let current_page = index.current_page;
+
+            if let Some(parent) = output_path.parent() {
+                fs::create_dir_all(parent).with_context(|| {
+                    format!("Failed to create index page directory {:?}", parent)
+                })?;
+            }
+
+            let rendered = theme
+                .render(INDEX_LAYOUT, &IndexLayoutData { config, index })
+                .with_context(|| format!("Failed to render index page {}", current_page))?;
+
+            fs::write(&output_path, rendered).with_context(|| {
+                format!(
+                    "Failed to write index page {} to {:?}",
+                    current_page, output_path
+                )
+            })?;
+        }
+
+        Ok(())
+    }
+
+    fn url_for_dir(dir: &Path, output_dir: &Path) -> Result<String> {
+        let relative_dir = dir.strip_prefix(output_dir).with_context(|| {
+            format!("Output directory {:?} is not inside {:?}", dir, output_dir)
+        })?;
+        let segments = relative_dir
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .join("/");
+
+        if segments.is_empty() {
+            Ok("/".into())
+        } else {
+            Ok(format!("/{}/", segments))
+        }
     }
 
     fn load_config(root: &Path) -> Result<Config> {
@@ -580,6 +644,116 @@ slug = 'custom-test-post'
             error
         );
         temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    fn write_post(target_dir: &assert_fs::fixture::ChildPath, file: &str, title: &str, date: &str) {
+        let content = format!(
+            "title = '{}'\nauthor = 'Pawan Dubey'\ndate = '{}'\ntags = []\n\n#####\n\nBody of {}",
+            title, date, title
+        );
+        let path = target_dir.child("content").child(file);
+        fs::create_dir_all(path.parent().unwrap()).expect("Failed to create content dir");
+        fs::write(path, content).expect("Failed to write test markdown");
+    }
+
+    fn set_posts_per_page(target_dir: &assert_fs::fixture::ChildPath, per_page: u64) {
+        let config_path = target_dir.child("rgent.toml");
+        let config = fs::read_to_string(&config_path).expect("Failed to read config");
+        let config = config.replace(
+            "postsperindex = 10",
+            &format!("postsperindex = {}", per_page),
+        );
+        fs::write(&config_path, config).expect("Failed to write config");
+    }
+
+    #[test]
+    fn test_publish_writes_paginated_index() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        set_posts_per_page(&target_dir, 2);
+        fs::write(
+            target_dir.child("themes/wells/index.html"),
+            "{{index.current_page}}/{{index.total_pages}}|{{index.previous_page}}|{{index.next_page}}|{{#each index.posts}}{{title}}@{{url}},{{/each}}",
+        )
+        .expect("Failed to write index layout");
+
+        write_post(&target_dir, "a.md", "Oldest", "2024-01-01");
+        write_post(&target_dir, "b.md", "Newest", "2024-03-01");
+        write_post(&target_dir, "c.md", "Middle", "2024-02-01");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let first = fs::read_to_string(target_dir.child("output/index.html"))
+            .expect("Failed to read first index page");
+        assert_eq!(
+            "1/2||/page/2/|Newest@/newest/,Middle@/middle/,",
+            first.trim()
+        );
+
+        let second = fs::read_to_string(target_dir.child("output/page/2/index.html"))
+            .expect("Failed to read second index page");
+        assert_eq!("2/2|/||Oldest@/oldest/,", second.trim());
+
+        target_dir
+            .child("output/page/3")
+            .assert(predicate::path::missing());
+        temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    #[test]
+    fn test_publish_writes_index_for_empty_site() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let contents = fs::read_to_string(target_dir.child("output/index.html"))
+            .expect("Failed to read index page");
+        assert!(contents.contains("No posts yet."), "{}", contents);
+        assert!(!contents.contains("pagination"), "{}", contents);
+        temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    #[test]
+    fn test_publish_urls_include_subdirectories() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let target_dir = temp_dir.child("rgent_test");
+        Operations::new(&target_dir.to_path_buf()).expect("Failed new operation");
+        fs::write(
+            target_dir.child("themes/wells/post.html"),
+            "{{post.url}}|{{post.permalink}}",
+        )
+        .expect("Failed to write post layout");
+
+        write_post(&target_dir, "notes/rust/tip.md", "Handy Tip", "2024-01-01");
+
+        Operations::publish(&target_dir, false).expect("Failed publish operation");
+
+        let contents =
+            fs::read_to_string(target_dir.child("output/notes/rust/handy-tip/index.html"))
+                .expect("Failed to read post");
+        assert_eq!(
+            "/notes/rust/handy-tip/|https://blog.example.com/notes/rust/handy-tip/",
+            contents.trim()
+        );
+        temp_dir.close().expect("Failed to delete temp directory")
+    }
+
+    #[test]
+    fn test_url_for_dir() {
+        let output = Path::new("/site/output");
+
+        assert_eq!(
+            "/",
+            Operations::url_for_dir(output, output).expect("Failed to build url")
+        );
+        assert_eq!(
+            "/a/b/",
+            Operations::url_for_dir(&output.join("a/b"), output).expect("Failed to build url")
+        );
+        assert!(Operations::url_for_dir(Path::new("/elsewhere"), output).is_err());
     }
 
     fn print_dir<T>(root: T) -> Result<(), walkdir::Error>

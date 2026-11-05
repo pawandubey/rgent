@@ -5,6 +5,7 @@ use operations::Operations;
 mod cli;
 mod config;
 mod operations;
+mod pagination;
 mod preview;
 mod theme;
 

@@ -12,6 +12,7 @@ const PARTIALS_DIR: &str = "partials";
 const ASSETS_DIR: &str = "assets";
 
 const STARTER_THEME: &[(&str, &str)] = &[
+    ("index.html", include_str!("starter_theme/index.html")),
     ("post.html", include_str!("starter_theme/post.html")),
     ("page.html", include_str!("starter_theme/page.html")),
     (
@@ -284,6 +285,33 @@ mod test {
             assert!(html.contains("<p>Body</p>"), "{}", html);
             assert!(html.contains("My Site"), "{}", html);
         }
+
+        let index_data = json!({
+            "config": {"site": {"name": "My Site"}},
+            "index": {
+                "posts": [{"title": "First", "url": "/first/", "content": "<p>One</p>"}],
+                "current_page": 1,
+                "total_pages": 2,
+                "next_page": "/page/2/",
+                "pages": [
+                    {"number": 1, "url": "/", "current": true},
+                    {"number": 2, "url": "/page/2/", "current": false},
+                ],
+            },
+        });
+        let html = theme
+            .render("index", &index_data)
+            .expect("Failed to render index");
+        assert!(html.contains("<title>My Site</title>"), "{}", html);
+        assert!(html.contains("<a href=\"/first/\">First</a>"), "{}", html);
+        assert!(html.contains("<p>One</p>"), "{}", html);
+        assert!(
+            html.contains("<a href=\"/page/2/\">Older &rarr;</a>"),
+            "{}",
+            html
+        );
+        assert!(!html.contains("Newer"), "{}", html);
+
         theme_dir
             .child("assets/style.css")
             .assert(predicate::path::is_file());

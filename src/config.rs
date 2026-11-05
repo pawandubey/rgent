@@ -18,7 +18,7 @@ pub struct Config {
     header_image: String,
 
     #[serde(rename = "postsperindex")]
-    posts_per_page: u64,
+    pub posts_per_page: u64,
 
     #[serde(rename = "rendertags", default)]
     render_tags: bool,
